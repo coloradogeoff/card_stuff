@@ -63,7 +63,7 @@ def build_messages(examples: list[str], ocr_text: str, postmark: str, user_condi
     system = load_instructions(category)
 
     if ocr_text:
-        system += f"Text found on postcard front: {ocr_text}\n"
+        system += f"Text found on the front of the item: {ocr_text}\n"
     if postmark:
         system += f"Postmark info: {postmark}\n"
     if user_condition:
@@ -88,8 +88,8 @@ def process_pair(front: Path, back: Path, compress: bool, category: str = "postc
         return None
     ocr_text = extract_ocr_text(front)
     images = [
-        {"desc": "This is the front of the postcard.", "data": image_to_base64(front, compress=compress)},
-        {"desc": "This is the back of the postcard.", "data": image_to_base64(back, compress=compress)},
+        {"desc": "This is the front of the item.", "data": image_to_base64(front, compress=compress)},
+        {"desc": "This is the back of the item.", "data": image_to_base64(back, compress=compress)},
     ]
     messages = build_messages([], ocr_text, "", "", images, category)
     response = client.chat.completions.create(
