@@ -5,12 +5,16 @@ import typer
 import os
 import re
 import yaml
+import csv
 from pathlib import Path
 from PIL import Image
 import pytesseract
 from openai import OpenAI
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+import time
+
 
 def load_instructions(category: str) -> str:
     rules_path = Path(__file__).parent / "instructions.yaml"
@@ -31,6 +35,28 @@ def compress_image(img: Image.Image, quality=85) -> bytes:
 
 app = typer.Typer()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# --- Simple global rate limiter for OpenAI calls ---
+_rate_lock = Lock()
+_last_call_time = 0.0
+_MIN_INTERVAL = 0.5  # seconds between calls (tune this as needed)
+
+def chat_with_openai(messages):
+    """Thread-safe wrapper that enforces a minimum delay between API calls."""
+    global _last_call_time
+
+    with _rate_lock:
+        now = time.time()
+        wait = _MIN_INTERVAL - (now - _last_call_time)
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_time = time.time()
+
+    return client.chat.completions.create(
+        model="gpt-5.2",
+        messages=messages,
+        max_completion_tokens=500
+    )
 
 def validate_image(path: Path):
     try:
@@ -91,54 +117,50 @@ def process_pair(front: Path, back: Path, compress: bool, category: str = "postc
         {"desc": "This is the front of the item.", "data": image_to_base64(front, compress=compress)},
         {"desc": "This is the back of the item.", "data": image_to_base64(back, compress=compress)},
     ]
+    
     messages = build_messages([], ocr_text, "", "", images, category)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        max_tokens=500
-    )
+    response = chat_with_openai(messages)
+
     content = response.choices[0].message.content.strip()
-    # Parse Title and Condition from output
-    lines = content.splitlines()
+    # Parse Title from output
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
     print(lines)
     title = ""
-    cond = ""
     # Match lines like '1. Title:', '**Title:**', 'Title:', etc.
     title_pattern = re.compile(r"^\s*(?:\d+\.\s*)?\**\s*title\s*:\s*(.+)$", re.IGNORECASE)
-    cond_pattern = re.compile(r"^\s*(?:\d+\.\s*)?\**\s*condition\s*:\s*(.+)$", re.IGNORECASE)
     for line in lines:
         title_match = title_pattern.match(line)
-        cond_match = cond_pattern.match(line)
         if title_match:
             title = title_match.group(1).strip()
             title = title.replace("*", "")  # Remove any asterisks
-        if cond_match:
-            cond = cond_match.group(1).strip()
-            cond = cond.replace("*", "")  # Remove any asterisks
+            break
+    if not title and lines:
+        title = lines[0].replace("*", "")
     return {
         "front": str(front.name),
-        "title": title,
-        "condition": cond
+        "title": title
     }
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def describe(
-    directory: Path = typer.Argument(..., help="Directory containing image files"),
     compress: bool = typer.Option(True, help="Compress and resize images before upload"),
-    sports: bool = typer.Option(False, help="Use sports card rules"),
-    postal: bool = typer.Option(False, help="Use postal history rules")
+    sports: bool = typer.Option(True, help="Use sports card rules"),
+    postal: bool = typer.Option(False, help="Use postal history rules"),
+    postcards: bool = typer.Option(False, help="Use postcard rules"),
+    viewer: bool = typer.Option(False, "--viewer", "-v", help="Open the viewer after generating the CSV")
 ):
     """
-    Generates descriptions for image pairs in a directory and writes results to descriptions.csv.
+    Generates titles for image pairs in the current directory and writes results to description.csv.
     """
+    directory = Path.cwd()
     # Determine category for instructions
-    if sports:
-        category = "sports_cards"
-    elif postal:
+    if postal:
         category = "postal_history"
-    else:
+    elif postcards:
         category = "postcards"
+    else:
+        category = "sports_cards"
 
     # Find all card_*.jpg files
     image_files = sorted(directory.glob("*.jpg"))
@@ -159,15 +181,17 @@ def describe(
             res = future.result()
             if res is not None:
                 results.append(res)
-    # Write to CSV
-    import csv
-    csv_path = directory / "descriptions.csv"
+    
+    csv_path = directory / "description.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=["front", "title", "condition"], quoting=csv.QUOTE_ALL)
+        writer = csv.DictWriter(csvfile, fieldnames=["front", "title"], quoting=csv.QUOTE_ALL)
         writer.writeheader()
         for row in results:
             writer.writerow(row)
-    typer.echo(f"Generated descriptions.csv with {len(results)} entries.")
+    typer.echo(f"Generated description.csv with {len(results)} entries.")
+    if viewer:
+        import viewer as viewer_app
+        viewer_app.main(str(csv_path))
 
 if __name__ == "__main__":
     app()

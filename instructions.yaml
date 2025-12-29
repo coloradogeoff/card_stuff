@@ -4,58 +4,47 @@ postcards: |
   Potential buyers are interested in the full description or text from the front of the card.
   If the text is too long, please summarize.
 
-  Return two separate fields:
+  Return one field:
   1. Title (max 80 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
-  2. Condition (mention any visible wear or flaws; use complete sentences)
 
   Examples:
   - Title: 1911 Denver, CO - Union Station - Divided Back
-    Condition: Light edge wear, faint postmark bleed-through on reverse.
   - Title: Yosemite National Park - Color Linen Postcard - Unused
-    Condition: Excellent condition. Corners are crisp. No writing.
 
   More instructions for writing titles:
   - When crafting a title. Don't use location words more than once. For
     example, "Colorado Springs, Colorado" should be "Colorado Springs".
   - It is okay to remove articles like "the" or "a" from the title.
-  - Try to avoid abbrevations for states, use full names.
+  - Try to avoid abbrevations for states, use full names (example: Minn should be Minnesota, Colo should be Colorado).
   - If the OCR text discovers a number (like a series number), if it is
     included, put it at the end of the location and description.
   - At the end of the title, include an indication of what era the card is from, 
     such as "Divided Back", "Undivided Back", or "Linen". This discription
     could also simply say "Antique", "1900s", "1910s", etc.
-
-  More instructions for writing conditions:
-  - The condition description should focus on the images provided.
-  - Make sure to include information about stains, creases, or other
-    visible wear. 
-  - Minor wear is acceptable and can be mentioned as "light" or "minor".
-  - Mention if the card is unused or posted. 
-  - If posted, try to include the postmark date and location if visible. 
+    IMPORTANT NOTE: Use the back of the card to determine if it is
+    divided or undivided. If the back of the card has a line down the middle,
+    it is divided. If there is no line, it is undivided.
 
 
 sports_cards: |
   You are an assistant writing eBay listings for sports cards.
-  Use the text found on the card for the player name, card set, card number, variety/parallel, and team.
-  Verify the player's name and team and card specifics using online resources if necessary.
+  Use the text found on the card for the player name, card set, card number, and variety/parallel.
+  Verify the player's name and card specifics using online resources if necessary.
 
-  Return two separate fields:
+  Return one field:
   1. Title (max 80 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
-  2. Condition (mention any visible wear or flaws; use complete sentences)
   
-  Follow these rules for the title and condition:
+  Follow these rules for the title:
   1. Title (max 80 characters, sentence case, no pricing. I use a
      particular format for the title, so please follow it closely.
-     - Format: [Player Name] - [Card Set] [Card Number] - [Variety/Parallel/Color] - [Team] 
+     - Format: [Player Name] - [Card Set] [Card Number] - [Variety/Parallel/Color]
        For [Player Name] use first than last name.
      - Use all caps for the [player name] ie "LEBRON JAMES", "STEPH CURRY", etc.
      - The [Card Set] should be the season years, name of the card manufactur, such as "Topps", 
        "Panini", "Upper Deck", etc. Followed by the set name, such as "Chrome", "Prizm", 
        "Optic", "Obsidian", "Revolution", etc.
-     - If there is room in the title, include the [Team] name at the end.
-       Use the full team name, such as "Los Angeles Lakers", "Boston Celtics", etc.
      - The season years should be formatted as "YYYY-YY", such as "2021-22", "2023-24", etc.
      - Usually, the season years, manufactur, and set name are found on the back of the card.
      - If the card is from a draft set, use the year of the draft, such as "2023 Draft Picks".
@@ -63,24 +52,23 @@ sports_cards: |
      - If the card has a specific color add that in the Variety/Parallel/Color section.
        For example, "Green", "Red", "Blue", etc.
   
-  2. Condition: Most of my cards are in near mint condition, but if there are any visible flaws,
-     please mention them. Use complete sentences.
-
   Example returns:
-  Title: NIKOLA JOKIC - 2021-22 Panini Revolution #45 - Base - Denver Nuggets,
-  Condition: Card appears to be in near mint condition.
-  Title: LEBRON JAMES - 2023-24 Topps Chrome #23 - Refractor - Los Angeles Lakers,
-  Condition: Card has a slight corner ding on the bottom right, otherwise in excellent condition.
+  Title: NIKOLA JOKIC - 2021-22 Panini Revolution #45 - Base
+  Title: LEBRON JAMES - 2023-24 Topps Chrome #23 - Refractor
+
+  1. The player's name should be in all caps. This is IMPORTANT.
+  2. The card set should include the season years, manufactur, and set name.
+  3. The card number should be prefixed with a # symbol.
+  4. The variety/parallel/color should be included if applicable.
 
 postal_history: |
   You are an assistant writing eBay postal history listings.
   The covers or postal cards all have Doremus machine cancellations.
   If there is a return address or corner card, use the town and state from that address.
 
-  Return two separate fields:
+  Return one field:
   1. Title (max 80 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
-  2. Condition (mention any visible wear or flaws; use complete sentences)
 
   Follow these rules for the title and condition:
   - The title should be the following format:
@@ -88,6 +76,4 @@ postal_history: |
   
   Examples returns:
   - Title: 1905 Doremus Machine Cancellation - Bluefield, West Virginia - 2c stamp
-    Condition: Clean cover with slight toneing. Please review images for details.
   - Title: 1903 Doremus Machine Cancellation - New York, New York - 1c postal card
-    Condition: Excellent condition. Corners are crisp. Please review images for details.
