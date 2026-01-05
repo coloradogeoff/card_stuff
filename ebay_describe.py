@@ -1,19 +1,36 @@
 #!/usr/bin/env python
 
 import base64
-import typer
+import csv
 import os
 import re
-import yaml
-import csv
-from pathlib import Path
-from PIL import Image
-import pytesseract
-from openai import OpenAI
-from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
 import time
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from pathlib import Path
+from threading import Lock
+
+import pytesseract
+import typer
+import yaml
+from PIL import Image
+
+
+def _ensure_typing_extensions_override():
+    # Work around older typing_extensions lacking override (used by openai).
+    try:
+        import typing_extensions
+    except Exception:
+        return
+    if not hasattr(typing_extensions, "override"):
+        def override(func):
+            return func
+        typing_extensions.override = override
+
+
+_ensure_typing_extensions_override()
+
+from openai import OpenAI
 
 
 def load_instructions(category: str) -> str:
