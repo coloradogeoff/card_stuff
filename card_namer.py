@@ -14,9 +14,24 @@ from typing import Dict, List, Optional, Tuple
 import pytesseract
 import typer
 from PIL import Image
-from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
+def _ensure_typing_extensions_override():
+    # Work around older typing_extensions lacking override (used by openai).
+    try:
+        import typing_extensions
+    except Exception:
+        return
+    if not hasattr(typing_extensions, "override"):
+        def override(func):
+            return func
+        typing_extensions.override = override
+
+
+_ensure_typing_extensions_override()
+
+from openai import OpenAI
 
 app = typer.Typer(add_completion=False)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -169,6 +184,25 @@ def _normalize_year(value: Optional[str], fallback_text: str, prefer_last: bool 
     return "Unknown"
 
 
+def _extract_season_year(text: str) -> Optional[str]:
+    if not text:
+        return None
+    for match in re.finditer(r"((?:19|20)\d{2})\s*[-/]\s*(\d{2}|(?:19|20)\d{2})", text):
+        return match.group(1)
+    return None
+
+
+def _extract_copyright_year(text: str) -> Optional[str]:
+    if not text:
+        return None
+    for line in text.splitlines():
+        if re.search(r"(?:copyright|\(c\))", line, flags=re.IGNORECASE):
+            years = re.findall(r"(?:19|20)\d{2}", line)
+            if years:
+                return years[-1]
+    return None
+
+
 def _extract_last_name(value: Optional[str]) -> str:
     if not value:
         return "Unknown"
@@ -286,12 +320,23 @@ def _describe_pair(
             "series": "Unknown",
             "number": "Unknown",
         }
-    bottom_year = _normalize_year(None, ocr_back_bottom, prefer_last=True)
-    if bottom_year != "Unknown":
-        details["year"] = bottom_year
+    combined_text = "\n".join(
+        part for part in (ocr_front, ocr_back, ocr_back_bottom, details.get("year", "")) if part
+    )
+    season_year = _extract_season_year(combined_text)
+    if season_year:
+        details["year"] = season_year
     else:
-        fallback_text = f"{ocr_back} {ocr_front}".strip()
-        details["year"] = _normalize_year(details.get("year"), fallback_text, prefer_last=True)
+        copyright_year = _extract_copyright_year(combined_text)
+        if copyright_year:
+            details["year"] = copyright_year
+        else:
+            bottom_year = _normalize_year(None, ocr_back_bottom, prefer_last=True)
+            if bottom_year != "Unknown":
+                details["year"] = bottom_year
+            else:
+                fallback_text = f"{ocr_back} {ocr_front}".strip()
+                details["year"] = _normalize_year(details.get("year"), fallback_text, prefer_last=True)
     for key in ("last_name", "manufacturer", "series", "number"):
         details.setdefault(key, "Unknown")
     return details
@@ -301,6 +346,9 @@ def _describe_pair(
 def main(
     directory: Path = typer.Option(Path.cwd(), "--directory", "-d", help="Directory with card_*.jpg files"),
     rename: bool = typer.Option(False, help="Rename files in place"),
+    usecsv: bool = typer.Option(
+        False, help="Rename using the existing card_names.csv and remove it when done"
+    ),
     back_suffix: str = typer.Option("_b", help="Suffix for back images"),
     model: str = typer.Option("gpt-5.2", help="OpenAI model"),
     max_size: int = typer.Option(1024, help="Max image width before upload"),
@@ -316,6 +364,53 @@ def main(
     directory = directory.expanduser().resolve()
     if not directory.exists():
         raise typer.BadParameter(f"Directory not found: {directory}")
+
+    output_csv = output_csv.expanduser()
+    if not output_csv.is_absolute():
+        output_csv = directory / output_csv
+
+    dry_run = not rename and not usecsv
+
+    if usecsv:
+        failures = 0
+        if not output_csv.exists():
+            raise typer.BadParameter(f"CSV not found: {output_csv}")
+        with open(output_csv, newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                front_name = row.get("front")
+                back_name = row.get("back")
+                new_front = row.get("new_front")
+                new_back = row.get("new_back")
+                if not (front_name and back_name and new_front and new_back):
+                    failures += 1
+                    typer.echo(f"Skipping row with missing names: {row}")
+                    continue
+                front_path = directory / front_name
+                back_path = directory / back_name
+                front_target = directory / new_front
+                back_target = directory / new_back
+
+                if front_path.exists():
+                    if front_path.resolve() != front_target.resolve():
+                        front_path.rename(front_target)
+                elif not front_target.exists():
+                    failures += 1
+                    typer.echo(f"Missing front image: {front_name}")
+
+                if back_path.exists():
+                    if back_path.resolve() != back_target.resolve():
+                        back_path.rename(back_target)
+                elif not back_target.exists():
+                    failures += 1
+                    typer.echo(f"Missing back image: {back_name}")
+
+        if failures:
+            typer.echo("Renaming completed with errors; CSV was not removed.")
+            raise typer.Exit(code=1)
+        output_csv.unlink()
+        typer.echo("Renamed files from CSV and removed card_names.csv.")
+        raise typer.Exit(code=0)
 
     image_files = _collect_images(directory, pattern)
     if not image_files:
@@ -358,6 +453,8 @@ def main(
                 "new_back": new_back,
             }
             results.append(row)
+            if dry_run:
+                typer.echo(f"Dry run: {front.name} -> {new_front}, {back.name} -> {new_back}")
 
     results.sort(key=lambda item: item["index"])
     for row in results:
@@ -371,9 +468,6 @@ def main(
             if back_path.resolve() != back_target.resolve():
                 back_path.rename(back_target)
 
-    output_csv = output_csv.expanduser()
-    if not output_csv.is_absolute():
-        output_csv = directory / output_csv
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
             csvfile,
@@ -401,7 +495,7 @@ def main(
     if rename:
         typer.echo("Renamed files in place.")
     else:
-        typer.echo("Dry run only. Re-run with --rename to apply.")
+        typer.echo("Dry run only. Re-run with --rename to apply or --usecsv to rename from the CSV.")
 
 
 if __name__ == "__main__":
