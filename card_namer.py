@@ -611,10 +611,11 @@ def main(
     variety: Optional[str] = typer.Option(None, help="Override variety to include in filename"),
     pattern: str = typer.Option("card_*", help="Glob pattern(s) for input images; comma-separated"),
     output_csv: Path = typer.Option("card_names.csv", help="CSV output path"),
-    tcdb: Optional[str] = typer.Option(
+    tcdb: Optional[List[str]] = typer.Option(
         None,
         "--tcdb",
-        help="Given an existing card filename, print a TCDB search URL and copy it to the clipboard",
+        help="Given one or more existing card filenames, print TCDB search URL(s) and copy the first to the clipboard",
+        nargs=-1,
     ),
 ):
     """
@@ -630,14 +631,24 @@ def main(
 
     dry_run = not rename and not usecsv
 
-    # TCDB helper mode: build a search URL from an existing filename.
+    # TCDB helper mode: build search URL(s) from existing filename(s).
     if tcdb:
-        url = _tcdb_search_url_from_filename(tcdb, back_suffix=back_suffix)
-        typer.echo(url)
-        if _copy_to_clipboard(url):
-            typer.echo("(Copied TCDB search URL to clipboard)")
+        urls: List[str] = []
+        for name in tcdb:
+            url = _tcdb_search_url_from_filename(name, back_suffix=back_suffix)
+            urls.append(url)
+            typer.echo(url)
+
+        # Copy the first URL to the clipboard (convenient default).
+        first_url = urls[0] if urls else ""
+        if first_url and _copy_to_clipboard(first_url):
+            if len(urls) == 1:
+                typer.echo("(Copied TCDB search URL to clipboard)")
+            else:
+                typer.echo(f"(Copied first TCDB search URL to clipboard; {len(urls)} total printed)")
         else:
             typer.echo("(Could not copy to clipboard)")
+
         raise typer.Exit(code=0)
 
     if usecsv:
