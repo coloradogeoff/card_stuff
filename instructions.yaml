@@ -37,16 +37,18 @@ sports_cards: |
       add as much detail as possible up to the character limit)
   
   Follow these rules for the title:
-  1. Title (max 80 characters, sentence case, no pricing. I use a
-     particular format for the title, so please follow it closely.
+     - Title (max 80 characters, sentence case, no pricing. I use a
+       particular format for the title, so please follow it closely.
      - Format: [Player Name] - [Card Set] [Card Number] - [Variety/Parallel/Color]
        For [Player Name] use first than last name.
+     - If the player is a rookie, include "(RC)" after the player's name.
      - Use all caps for the [player name] ie "LEBRON JAMES", "STEPH CURRY", etc.
      - The [Card Set] should be the season years, name of the card manufactur, such as "Topps", 
        "Panini", "Upper Deck", etc. Followed by the set name, such as "Chrome", "Prizm", 
        "Optic", "Obsidian", "Revolution", etc.
      - The season years should be formatted as "YYYY-YY", such as "2021-22", "2023-24", etc.
-     - Usually, the season years, manufactur, and set name are found on the back of the card.
+     - Usually, the season years, manufactur, and set name are found on the back of the card 
+       near the bottom.
      - If the card is from a draft set, use the year of the draft, such as "2023 Draft Picks".
      - There is no need to include the sport such as "basketball" or "football" in the title.
      - If the card has a specific color add that in the Variety/Parallel/Color section.
@@ -60,6 +62,7 @@ sports_cards: |
   2. The card set should include the season years, manufactur, and set name.
   3. The card number should be prefixed with a # symbol.
   4. The variety/parallel/color should be included if applicable.
+  5. No need to include the team the player is on.
 
 postal_history: |
   You are an assistant writing eBay postal history listings.
