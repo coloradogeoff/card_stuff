@@ -47,6 +47,8 @@ def make_envelope_pdf(
     # Vertical placement controls
     base_center_y_frac: float = 0.43,  # slightly below true center
     to_shift_down_in: float = 1.0,     # move destination block further down
+    # Horizontal placement control
+    to_shift_right_in: float = 0.5,    # move destination block further right
     content_rotation: str = "none",    # "none", "cw", or "ccw"
 ) -> str:
     W_page, H_page = page_w_in * inch, page_h_in * inch
@@ -86,7 +88,7 @@ def make_envelope_pdf(
     c.setFont(to_font, to_font_size)
     line_widths = [pdfmetrics.stringWidth(line, to_font, to_font_size) for line in to_lines] or [0]
     block_width = max(line_widths)
-    x_left = (W - block_width) / 2.0
+    x_left = (W - block_width) / 2.0 + (to_shift_right_in * inch)
 
     # Compute block height (approx) and place it lower on the page
     block_height = to_leading * (len(to_lines) - 1) + to_font_size
