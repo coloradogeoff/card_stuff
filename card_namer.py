@@ -614,8 +614,10 @@ def main(
     tcdb: Optional[List[str]] = typer.Option(
         None,
         "--tcdb",
-        help="Given one or more existing card filenames, print TCDB search URL(s) and copy the first to the clipboard",
-        nargs=-1,
+        help=(
+            "Given one or more existing card filenames, print TCDB search URL(s) "
+            "and copy the first to the clipboard. Repeat --tcdb for multiple."
+        ),
     ),
 ):
     """
