@@ -39,7 +39,7 @@ sports_cards: |
   Follow these rules for the title:
      - Title (max 80 characters, sentence case, no pricing. I use a
        particular format for the title, so please follow it closely.
-     - Format: [Player Name] - [Card Set] [Card Number] - [Variety/Parallel/Color]
+     - Format: [Player Name] - [Season Years] [Card Set] [Card Number] - [Variety/Parallel/Color]
        For [Player Name] use first than last name.
      - If the player is a rookie, include "(RC)" after the player's name.
      - Use all caps for the [player name] ie "LEBRON JAMES", "STEPH CURRY", etc.
