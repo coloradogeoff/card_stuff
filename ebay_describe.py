@@ -5,10 +5,12 @@ import csv
 import os
 import re
 import time
+from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
+from openai import OpenAI
 
 import pytesseract
 import typer
@@ -29,8 +31,6 @@ def _ensure_typing_extensions_override():
 
 
 _ensure_typing_extensions_override()
-
-from openai import OpenAI
 
 
 def load_instructions(category: str) -> str:
@@ -102,7 +102,15 @@ def image_to_base64(image_path: Path, compress=True) -> str:
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
         
-def build_messages(examples: list[str], ocr_text: str, postmark: str, user_condition: str, images: list[dict], category: str = "postcards") -> list:
+def build_messages(
+    examples: list[str],
+    ocr_text: str,
+    postmark: str,
+    user_condition: str,
+    images: list[dict],
+    category: str = "postcards",
+    set_override: Optional[str] = None,
+) -> list:
     system = load_instructions(category)
 
     if ocr_text:
@@ -111,6 +119,11 @@ def build_messages(examples: list[str], ocr_text: str, postmark: str, user_condi
         system += f"Postmark info: {postmark}\n"
     if user_condition:
         system += f"Seller notes: {user_condition}\n"
+    if category == "sports_cards" and set_override:
+        system += (
+            "Card set override: Use exactly the following card set string in the title "
+            f"(season years + manufacturer + set name): {set_override}\n"
+        )
 
     messages = [{"role": "system", "content": system}]
 
@@ -125,7 +138,13 @@ def build_messages(examples: list[str], ocr_text: str, postmark: str, user_condi
 
     return messages
 
-def process_pair(front: Path, back: Path, compress: bool, category: str = "postcards") -> dict:
+def process_pair(
+    front: Path,
+    back: Path,
+    compress: bool,
+    category: str = "postcards",
+    set_override: Optional[str] = None,
+) -> dict:
     typer.echo(f"Processing {front.name} ...")
     if not (validate_image(front) and validate_image(back)):
         return None
@@ -135,7 +154,7 @@ def process_pair(front: Path, back: Path, compress: bool, category: str = "postc
         {"desc": "This is the back of the item.", "data": image_to_base64(back, compress=compress)},
     ]
     
-    messages = build_messages([], ocr_text, "", "", images, category)
+    messages = build_messages([], ocr_text, "", "", images, category, set_override)
     response = chat_with_openai(messages)
 
     content = response.choices[0].message.content.strip()
@@ -165,6 +184,11 @@ def describe(
     sports: bool = typer.Option(True, help="Use sports card rules"),
     postal: bool = typer.Option(False, help="Use postal history rules"),
     postcards: bool = typer.Option(False, help="Use postcard rules"),
+    set_override: Optional[str] = typer.Option(
+        None,
+        "--set",
+        help="Override the card set (season years, manufacturer, set name) for sports cards",
+    ),
     viewer: bool = typer.Option(False, "--viewer", "-v", help="Open the viewer after generating the CSV")
 ):
     """
@@ -193,7 +217,10 @@ def describe(
     results = []
     with ThreadPoolExecutor(max_workers=4) as executor:
         # Pass category to process_pair
-        futures = [executor.submit(process_pair, front, back, compress, category) for front, back in pairs]
+        futures = [
+            executor.submit(process_pair, front, back, compress, category, set_override)
+            for front, back in pairs
+        ]
         for future in futures:
             res = future.result()
             if res is not None:

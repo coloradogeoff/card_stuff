@@ -609,7 +609,14 @@ def main(
     quality: int = typer.Option(85, help="JPEG quality for uploads"),
     workers: int = typer.Option(4, help="Number of worker threads"),
     variety: Optional[str] = typer.Option(None, help="Override variety to include in filename"),
-    pattern: str = typer.Option("card_*", help="Glob pattern(s) for input images; comma-separated"),
+    pattern: str = typer.Option(
+        "card_*", help="Glob pattern(s) for input images; comma-separated (ignored with --images)"
+    ),
+    images: Tuple[str, str] = typer.Option(
+        ("", ""),
+        "--images",
+        help="Process a single card by providing front and back image paths (front first, then back).",
+    ),
     output_csv: Path = typer.Option("card_names.csv", help="CSV output path"),
     tcdb: Optional[List[str]] = typer.Option(
         None,
@@ -622,6 +629,7 @@ def main(
 ):
     """
     Generate card filenames from paired images (front + back).
+    Use --images FRONT BACK to process a single card.
     """
     directory = directory.expanduser().resolve()
     if not directory.exists():
@@ -699,9 +707,29 @@ def main(
         typer.echo("Renamed files from CSV and removed card_names.csv.")
         raise typer.Exit(code=0)
 
-    image_files = _collect_images(directory, pattern)
+    if images[0] or images[1]:
+        if not images[0] or not images[1]:
+            raise typer.BadParameter("Provide both front and back images for --images.")
+        front_input, back_input = images
+        resolved: List[Path] = []
+        for raw in (front_input, back_input):
+            path = Path(raw).expanduser()
+            if not path.is_absolute():
+                path = directory / path
+            path = path.resolve()
+            if not path.exists() or not path.is_file():
+                raise typer.BadParameter(f"Image not found: {raw}")
+            if path.parent != directory:
+                raise typer.BadParameter(
+                    f"Image {path.name} is not in {directory}. "
+                    "When using --images, point --directory at the image folder."
+                )
+            resolved.append(path)
+        image_files = resolved
+    else:
+        image_files = _collect_images(directory, pattern)
     if not image_files:
-        typer.echo("No card_*.jpg images found.")
+        typer.echo("No images found.")
         raise typer.Exit(code=1)
 
     pairs = []
