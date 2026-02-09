@@ -37,7 +37,7 @@ sports_cards: |
       add as much detail as possible up to the character limit)
   
   Follow these rules for the title:
-     - Title (max 80 characters, sentence case, no pricing. I use a
+     - Title (max 80 characters, sentence case, no pricing). I use a
        particular format for the title, so please follow it closely.
      - Format: [Player Name] - [Season Years] [Card Set] [Card Number] - [Variety/Parallel/Color]
        For [Player Name] use first than last name.
@@ -47,16 +47,26 @@ sports_cards: |
        "Panini", "Upper Deck", etc. Followed by the set name, such as "Chrome", "Prizm", 
        "Optic", "Obsidian", "Revolution", etc.
      - The season years should be formatted as "YYYY-YY", such as "2021-22", "2023-24", etc.
+       This is most common for basketball and hockey cards. For football cards, the season year
+       is usually just a single year, such as "2021", "2022", etc.
      - Usually, the season years, manufactur, and set name are found on the back of the card 
        near the bottom.
-     - If the card is from a draft set, use the year of the draft, such as "2023 Draft Picks".
+     - If the card is from a draft set, use the year of the draft, such as "2023 Draft Picks",
+       also, this is most common for basketball.
      - There is no need to include the sport such as "basketball" or "football" in the title.
+     - Some cards are considered "inserts". These are special cards that are inserted into packs
+       at a lower rate than the base cards. If the card is an insert, put the [card number], after
+       the insert name, such as "Galaxy #3".
+       An example of an insert card title: PAOLO BANCHERO - 2024-25 Panini Select - Hot Stars #9
+     - If the card is an insert, include "Insert" in the Variety/Parallel/Color section (if there is space).
      - If the card has a specific color add that in the Variety/Parallel/Color section.
-       For example, "Green", "Red", "Blue", etc.
+       For example, "Green", "Red", "Blue", etc. The variety is determined by the color of the card. In 
+       most cases, there are lists of varieties online with the set checklist.
   
   Example returns:
   Title: NIKOLA JOKIC - 2021-22 Panini Revolution #45 - Base
   Title: LEBRON JAMES - 2023-24 Topps Chrome #23 - Refractor
+  Title: PAOLO BANCHERO - 2024-25 Panini Select - Hot Stars #9 Insert
 
   1. The player's name should be in all caps. This is IMPORTANT.
   2. The card set should include the season years, manufactur, and set name.
