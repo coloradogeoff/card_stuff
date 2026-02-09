@@ -2,20 +2,42 @@
 
 import sys
 import csv
+from datetime import date
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QPushButton, QHBoxLayout, QAbstractItemView, QFileDialog, QLineEdit,
-    QHeaderView
+    QHeaderView, QLabel
 )
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QClipboard
+from PyQt5.QtGui import QColor
+
+HIGHLIGHT_COLOR = "#d9f7d9"
 
 class DescriptionTable(QWidget):
     def __init__(self, csv_path):
         super().__init__()
-        self.setWindowTitle("Postcard Descriptions")
+        self.last_copied_row = None
+        self.highlighted_row = None
+        self.setWindowTitle("Ebay Title Descriptions")
         self.resize(900, 600)
         layout = QVBoxLayout(self)
+
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Potential SKU"))
+        self.sku_input = QLineEdit(date.today().strftime("%Y%m%d"))
+        self.sku_input.setToolTip("Potential SKU value")
+        controls.addWidget(self.sku_input)
+        self.copy_sku_btn = QPushButton("Copy")
+        self.copy_sku_btn.setToolTip("Copy Potential SKU")
+        self.copy_sku_btn.clicked.connect(self.copy_potential_sku)
+        controls.addWidget(self.copy_sku_btn)
+        controls.addStretch()
+        self.copy_next_btn = QPushButton("Copy Next")
+        self.copy_next_btn.setToolTip("Copy the next title")
+        self.copy_next_btn.clicked.connect(self.copy_next_title)
+        controls.addWidget(self.copy_next_btn)
+        layout.addLayout(controls)
+
         self.table = QTableWidget(self)
         layout.addWidget(self.table)
         self.load_csv(csv_path)
@@ -41,13 +63,65 @@ class DescriptionTable(QWidget):
             # Title Copy button
             btn_title = QPushButton("Copy")
             btn_title.setToolTip("Copy Title")
-            btn_title.clicked.connect(lambda _, text=row["title"]: self.copy_to_clipboard(text))
+            btn_title.clicked.connect(lambda _, r=row_idx: self.copy_row_title(r))
             self.table.setCellWidget(row_idx, 2, btn_title)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table.resizeRowsToContents()
+        self.update_copy_next_state()
+
+    def copy_row_title(self, row):
+        if row < 0 or row >= self.table.rowCount():
+            return
+        title_widget = self.table.cellWidget(row, 1)
+        if not isinstance(title_widget, QLineEdit):
+            return
+        self.copy_to_clipboard(title_widget.text())
+        self.last_copied_row = row
+        self.highlight_row(row)
+        self.update_copy_next_state()
+
+    def copy_next_title(self):
+        total_rows = self.table.rowCount()
+        if total_rows == 0:
+            return
+        if self.last_copied_row is None:
+            next_row = 0
+        else:
+            next_row = self.last_copied_row + 1
+        if next_row >= total_rows:
+            return
+        self.copy_row_title(next_row)
+
+    def highlight_row(self, row):
+        if self.highlighted_row is not None and self.highlighted_row != row:
+            self.set_row_highlight(self.highlighted_row, highlighted=False)
+        self.set_row_highlight(row, highlighted=True)
+        self.highlighted_row = row
+
+    def set_row_highlight(self, row, highlighted):
+        color = HIGHLIGHT_COLOR if highlighted else ""
+        img_item = self.table.item(row, 0)
+        if img_item is not None:
+            img_item.setData(Qt.BackgroundRole, QColor(HIGHLIGHT_COLOR) if highlighted else None)
+        title_widget = self.table.cellWidget(row, 1)
+        if title_widget is not None:
+            title_widget.setStyleSheet(f"background-color: {color};")
+        copy_btn = self.table.cellWidget(row, 2)
+        if copy_btn is not None:
+            copy_btn.setStyleSheet(f"background-color: {color};")
+
+    def update_copy_next_state(self):
+        total_rows = self.table.rowCount()
+        enabled = total_rows > 0 and (
+            self.last_copied_row is None or self.last_copied_row < total_rows - 1
+        )
+        self.copy_next_btn.setEnabled(enabled)
+
+    def copy_potential_sku(self):
+        self.copy_to_clipboard(self.sku_input.text())
 
     def copy_to_clipboard(self, text):
         clipboard = QApplication.clipboard()
