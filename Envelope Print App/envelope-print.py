@@ -110,19 +110,19 @@ class EnvelopePrinter:
 
 
 ENVELOPE_SPECS = {
-    "6x9": EnvelopeSpec(
-        label="6x9",
-        page_w_in=6.0,
-        page_h_in=9.0,
-        content_rotation="ccw",
-        media=MEDIA_NAME_6X9,
-    ),
     "5x7": EnvelopeSpec(
         label="5x7",
         page_w_in=5.0,
         page_h_in=7.0,
         content_rotation="ccw",
         media=MEDIA_NAME_5X7,
+    ),
+    "6x9": EnvelopeSpec(
+        label="6x9",
+        page_w_in=6.0,
+        page_h_in=9.0,
+        content_rotation="ccw",
+        media=MEDIA_NAME_6X9,
     ),
 }
 
