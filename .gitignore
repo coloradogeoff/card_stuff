@@ -1,4 +1,5 @@
 .DS_Store
 .psa-token.txt
 .tinyurl-token.txt
+.openai-api-key.txt
 __*

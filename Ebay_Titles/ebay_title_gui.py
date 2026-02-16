@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -44,6 +45,7 @@ _rate_lock = Lock()
 _last_call_time = 0.0
 _MIN_INTERVAL = 0.5
 _client = None
+_openai_api_key = None
 
 
 def _ensure_typing_extensions_override():
@@ -66,6 +68,31 @@ def load_instructions(category: str) -> str:
     with open(rules_path, "r", encoding="utf-8") as file_handle:
         data = yaml.safe_load(file_handle) or {}
     return data.get(category, "")
+
+
+def instructions_file_path() -> Path:
+    return Path(__file__).parent / "instructions.yaml"
+
+
+def load_openai_api_key() -> str:
+    env_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if env_key:
+        return env_key
+
+    candidates = [
+        Path(__file__).with_name(".openai-api-key.txt"),
+        Path(__file__).resolve().parent.parent / ".openai-api-key.txt",
+    ]
+    for key_path in candidates:
+        if key_path.exists():
+            key = key_path.read_text(encoding="utf-8").strip()
+            if key:
+                return key
+
+    raise RuntimeError(
+        "Missing OPENAI_API_KEY. Set the environment variable or create "
+        ".openai-api-key.txt next to ebay_title_gui.py (or in its parent folder)."
+    )
 
 
 def resize_image(input_path: Path, max_size: int = 1024) -> Image.Image:
@@ -150,9 +177,12 @@ def build_messages(
 def chat_with_openai(messages):
     global _last_call_time
     global _client
+    global _openai_api_key
 
     if _client is None:
-        _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        if _openai_api_key is None:
+            _openai_api_key = load_openai_api_key()
+        _client = OpenAI(api_key=_openai_api_key)
 
     with _rate_lock:
         now = time.time()
@@ -262,6 +292,68 @@ class ClickableLabel(QLabel):
         if event.button() == Qt.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+
+class InstructionsEditorDialog(QDialog):
+    def __init__(self, path: Path, parent=None):
+        super().__init__(parent)
+        self.path = path
+        self.setWindowTitle("Edit instructions.yaml")
+        self.resize(900, 700)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(f"Editing: {self.path}"))
+
+        self.editor = QPlainTextEdit()
+        layout.addWidget(self.editor, stretch=1)
+
+        button_row = QHBoxLayout()
+        self.reload_button = QPushButton("Reload")
+        self.reload_button.clicked.connect(self.load_file)
+        button_row.addWidget(self.reload_button)
+        button_row.addStretch()
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_file)
+        button_row.addWidget(self.save_button)
+
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.accept)
+        button_row.addWidget(self.close_button)
+        layout.addLayout(button_row)
+
+        self.load_file()
+
+    def load_file(self):
+        try:
+            content = self.path.read_text(encoding="utf-8")
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Failed", f"Could not read instructions file:\n{exc}")
+            return
+        self.editor.setPlainText(content)
+
+    def save_file(self):
+        text = self.editor.toPlainText()
+        try:
+            parsed = yaml.safe_load(text) or {}
+            if not isinstance(parsed, dict):
+                QMessageBox.warning(
+                    self,
+                    "Invalid YAML",
+                    "instructions.yaml must contain a mapping of categories.",
+                )
+                return
+        except Exception as exc:
+            QMessageBox.warning(self, "Invalid YAML", f"YAML parse error:\n{exc}")
+            return
+
+        try:
+            if text and not text.endswith("\n"):
+                text += "\n"
+            self.path.write_text(text, encoding="utf-8")
+            QMessageBox.information(self, "Saved", "instructions.yaml updated.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Failed", f"Could not write instructions file:\n{exc}")
 
 
 class ProcessorWorker(QObject):
@@ -379,11 +471,16 @@ class EbayTitleGui(QWidget):
         root = QVBoxLayout(self)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("Category"))
+        category_block = QVBoxLayout()
+        category_block.addWidget(QLabel("Category"))
         self.category_combo = QComboBox()
         self.category_combo.addItems(["Sports Cards", "Postcards", "Postal History"])
         self.category_combo.currentIndexChanged.connect(self.on_category_changed)
-        top.addWidget(self.category_combo)
+        category_block.addWidget(self.category_combo)
+        self.edit_instructions_button = QPushButton("Edit Instructions")
+        self.edit_instructions_button.clicked.connect(self.open_instructions_editor)
+        category_block.addWidget(self.edit_instructions_button)
+        top.addLayout(category_block)
 
         top.addWidget(QLabel("Image Directory"))
         self.directory_edit = QLineEdit(str(self.default_directory))
@@ -657,6 +754,7 @@ class EbayTitleGui(QWidget):
         self.view_descriptions_button.setEnabled(
             enabled and self.view_descriptions_button.isVisible()
         )
+        self.edit_instructions_button.setEnabled(enabled)
         self.overrides_widget.setEnabled(enabled and self.overrides_widget.isVisible())
         if enabled:
             self.update_submit_enabled()
@@ -681,6 +779,10 @@ class EbayTitleGui(QWidget):
             self.update_view_descriptions_button(directory)
             return
         self.launch_viewer(directory)
+
+    def open_instructions_editor(self):
+        dialog = InstructionsEditorDialog(instructions_file_path(), self)
+        dialog.exec_()
 
     def start_processing(self):
         if self.thread is not None:
