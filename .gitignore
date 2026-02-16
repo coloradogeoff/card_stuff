@@ -3,3 +3,4 @@
 .tinyurl-token.txt
 .openai-api-key.txt
 __*
+*.app/
