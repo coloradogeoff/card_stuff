@@ -137,7 +137,8 @@ def _build_messages(
         "You are a sports card identification assistant. Using the images and OCR text, "
         "extract: year (4-digit start year of the season), last_name (player last name only), "
         "manufacturer (e.g., Topps, Panini), series (e.g., Chrome, Select, Mosaic), and number "
-        "(card number only, no #). Return ONLY a JSON object with keys: "
+        "(card number only, no #). If the card is an insert, add the insert name before "
+        "the card number. Return ONLY a JSON object with keys: "
         "year, last_name, manufacturer, series, number. If unknown, use 'Unknown'."
     )
     if ocr_front:
@@ -653,8 +654,17 @@ class NameWorker(QObject):
             self.failed.emit(f"{exc}\n{traceback.format_exc()}")
 
 
+def _app_support_directory() -> Path:
+    target = (Path.home() / "Library" / "Application Support" / "Card Namer").expanduser()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return target
+
+
 def _default_cards_directory() -> Path:
-    target = (Path.home() / "Desktop" / "incoming cards").expanduser()
+    target = (Path.home() / "incoming cards").expanduser()
     try:
         target.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -663,7 +673,16 @@ def _default_cards_directory() -> Path:
 
 
 def _existing_cards_directory() -> Path:
-    return (Path.home() / "Desktop" / "Cards").expanduser()
+    external_target = Path("/Volumes/Dutton 2TB/Cards/Mix")
+    if external_target.exists() and external_target.is_dir():
+        return external_target
+
+    target = (_app_support_directory() / "Cards").expanduser()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return target
 
 
 def _natural_sort_key(value: str):

@@ -5,7 +5,7 @@ postcards: |
   If the text is too long, please summarize.
 
   Return one field:
-  1. Title (max 80 characters, sentence case, no pricing. However,
+  1. Title (max 79 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
 
   Examples:
@@ -33,11 +33,11 @@ sports_cards: |
   Verify the player's name and card specifics using online resources if necessary.
 
   Return one field:
-  1. Title (max 80 characters, sentence case, no pricing. However,
+  1. Title (max 79 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
   
   Follow these rules for the title:
-     - Title (max 80 characters, sentence case, no pricing). I use a
+     - Title (max 79 characters, sentence case, no pricing). I use a
        particular format for the title, so please follow it closely.
      - Format: [Player Name] - [Season Years] [Card Set] [Card Number] - [Variety/Parallel/Color]
        For [Player Name] use first than last name.
@@ -80,13 +80,16 @@ postal_history: |
   If there is a return address or corner card, use the town and state from that address.
 
   Return one field:
-  1. Title (max 80 characters, sentence case, no pricing. However,
+  1. Title (max 79 characters, sentence case, no pricing. However,
       add as much detail as possible up to the character limit)
 
   Follow these rules for the title and condition:
   - The title should be the following format:
-    [Postmark Year] Doremus Machine Cancellation - [Town, State] - [any additional details]
+    [Postmark Year] [Description] [Stamp]
+
+  - Attempt to determine the year and location of the postmark. 
+  - The stamp denomination and person or subject
   
   Examples returns:
   - Title: 1905 Doremus Machine Cancellation - Bluefield, West Virginia - 2c stamp
-  - Title: 1903 Doremus Machine Cancellation - New York, New York - 1c postal card
+  - Title: 1903 U.S.S CALIFORNIA - 1c postal card
