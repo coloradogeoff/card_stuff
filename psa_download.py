@@ -129,6 +129,7 @@ def _extract_card_details(data: dict) -> Dict[str, Optional[str]]:
         "manufacturer": None,
         "series": None,
         "variety": None,
+        "card_number": None,
     }
 
     details["year"] = _extract_year_from_json(data)
@@ -152,6 +153,9 @@ def _extract_card_details(data: dict) -> Dict[str, Optional[str]]:
     )
     details["variety"] = _normalize_whitespace(
         next(iter(_walk_json(data, ["variety", "parallel"])), None)
+    )
+    details["card_number"] = _normalize_whitespace(
+        next(iter(_walk_json(data, ["cardnumber", "cardno", "cardnum"])), None)
     )
 
     return details
@@ -590,6 +594,7 @@ def fetch(
         series or details.get("series"),
     )
     final_variety = variety or details.get("variety")
+    final_card_number = details.get("card_number")
 
     year_match = re.search(r"(19|20)\d{2}", final_year)
     final_year = year_match.group(0) if year_match else final_year
@@ -615,6 +620,10 @@ def fetch(
         variety_slug = _compact_slug(final_variety)
         if variety_slug != "Unknown":
             parts.append(variety_slug)
+    if final_card_number:
+        card_number_slug = _slugify(final_card_number)
+        if card_number_slug != "Unknown":
+            parts.append(card_number_slug)
     base_name = "-".join(parts)
 
     front_path = out_dir / f"{base_name}.jpg"
