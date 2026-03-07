@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Missing Select Cards - eBay Search</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      line-height: 1.4;
+      background: #f7f7f7;
+      color: #222;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.6rem;
+    }
+    .card-list {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 16px;
+      max-width: 900px;
+    }
+    .card-item {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .card-item:last-child {
+      border-bottom: 0;
+    }
+    .card-name {
+      font-weight: 600;
+    }
+    a {
+      text-decoration: none;
+      color: #0b57d0;
+      white-space: nowrap;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .note-red {
+      background: #ffd9d9;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Missing Select Cards</h1>
+  <p>
+    Sources:
+    <a href="https://www.neddogs.com/jokic-select/" target="_blank" rel="noopener">neddogs.com/jokic-select</a>
+    and
+    <a href="https://www.neddogs.com/murray-select/" target="_blank" rel="noopener">neddogs.com/murray-select</a>
+    and
+    <a href="https://www.neddogs.com/gordon-select/" target="_blank" rel="noopener">neddogs.com/gordon-select</a>
+  </p>
+
+  <div class="card-list" id="cardList"></div>
+  <p><strong>Note:</strong> <span class="note-red">Red is purchased/in-transit</span> and black recently acquired.</p>
+
+  <script>
+    const missingCards = [
+      { title: "2016-17 Panini Select Courtside #258", player: "Nikola Jokic" },
+      { title: "2021-22 Panini Select Concourse #82", player: "Nikola Jokic" },
+      { title: "2017-18 Panini Select #273", player: "Jamal Murray" },
+      { title: "2019-20 Panini Select #92", player: "Jamal Murray" },
+      { title: "2019-20 Panini Select #218", player: "Jamal Murray" },
+      { title: "2020-21 Panini Select #142", player: "Jamal Murray" },
+      { title: "2020-21 Panini Select #260", player: "Jamal Murray" },
+      { title: "2021-22 Panini Select #112", player: "Jamal Murray" },
+      { title: "2022-23 Panini Select #39", player: "Jamal Murray" },
+      { title: "2022-23 Panini Select #139", player: "Jamal Murray" },
+      { title: "2022-23 Panini Select #239", player: "Jamal Murray" },
+      { title: "2023-24 Panini Select #35", player: "Jamal Murray" },
+      { title: "2024-25 Panini Select #120", player: "Jamal Murray" },
+      { title: "2024-25 Panini Select #356", player: "Jamal Murray" },
+      { title: "2014-15 Panini Select #292", player: "Aaron Gordon" },
+      { title: "2016-17 Panini Select #210", player: "Aaron Gordon" },
+      { title: "2018-19 Panini Select #101", player: "Aaron Gordon" },
+      { title: "2020-21 Panini Select #134", player: "Aaron Gordon" },
+      { title: "2021-22 Panini Select #208", player: "Aaron Gordon" }
+    ];
+
+    const list = document.getElementById("cardList");
+    const inboundMurrayCards = new Set([
+      "2020-21 Panini Select #142",
+      "2022-23 Panini Select #39",
+      "2022-23 Panini Select #139",
+      "2021-22 Panini Select #112"
+    ]);
+
+    missingCards.forEach((card) => {
+      const query = `${card.player} ${card.title} base`;
+      const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}`;
+
+      const row = document.createElement("div");
+      row.className = "card-item";
+
+      const name = document.createElement("div");
+      name.className = "card-name";
+      name.textContent = `${card.player} - ${card.title}`;
+
+      const link = document.createElement("a");
+      link.href = ebayUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Search on eBay";
+
+      if (
+        (card.player === "Jamal Murray" && inboundMurrayCards.has(card.title)) ||
+        (card.player === "Nikola Jokic" && card.title === "2021-22 Panini Select Concourse #82")
+      ) {
+        row.style.textDecoration = "line-through";
+        row.style.textDecorationColor = "red";
+        row.style.textDecorationThickness = "2px";
+      }
+
+      if (
+        card.player === "Jamal Murray" &&
+        (card.title === "2019-20 Panini Select #218" || card.title === "2019-20 Panini Select #92")
+      ) {
+        row.style.textDecoration = "line-through";
+      }
+
+      row.appendChild(name);
+      row.appendChild(link);
+      list.appendChild(row);
+    });
+  </script>
+</body>
+</html>

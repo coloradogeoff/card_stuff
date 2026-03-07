@@ -3,6 +3,8 @@
 import sys
 import os
 import re
+import glob
+import time
 import numpy as np
 from PIL import Image
 
@@ -99,6 +101,17 @@ def merge_images(image_files, output_file=None):
 
     merged_image.save(output_file)
     print(f"Merged image saved as {output_file}")
+    return output_file
+
+
+def touch_files_in_order(card_files, merged_file):
+    # Ensure deterministic date ordering:
+    # merged file is newest, then card_...0001.jpg, card_...0002.jpg, etc.
+    base_time = time.time()
+    os.utime(merged_file, (base_time, base_time))
+    for i, path in enumerate(card_files, start=1):
+        ts = base_time - i
+        os.utime(path, (ts, ts))
 
 def main():
     # Check if -e is provided. If yes, use even numbers; otherwise, default to odd.
@@ -134,16 +147,18 @@ def main():
             # Optionally handle files that do not match the expected pattern.
             pass
 
-    # Sort the files by the extracted number to ensure the proper order.
+    # Sort files by the extracted number to ensure proper order.
     def sort_key(filename):
         m = pattern.search(filename)
         return int(m.group(1)) if m else 0
 
     filtered_files.sort(key=sort_key)
+    ordered_touch_files = sorted({f for f in files if pattern.search(f)}, key=sort_key)
 
     # Continue with your merging process using filtered_files
     print("Merging files:", filtered_files)
-    merge_images(filtered_files)
+    merged_file = merge_images(filtered_files)
+    touch_files_in_order(ordered_touch_files, merged_file)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
