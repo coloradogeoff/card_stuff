@@ -64,7 +64,7 @@
   </p>
 
   <div class="card-list" id="cardList"></div>
-  <p><strong>Note:</strong> <span class="note-red">Red is purchased/in-transit</span> and black recently acquired.</p>
+  <p><strong>Note:</strong> Red strikethrough indicates ordered/in transit. Black strikethrough indicates recently acquired.</p>
 
   <script>
     const missingCards = [
@@ -90,11 +90,22 @@
     ];
 
     const list = document.getElementById("cardList");
-    const inboundMurrayCards = new Set([
+    const acquiredMurrayCards = new Set([
       "2020-21 Panini Select #142",
       "2022-23 Panini Select #39",
       "2022-23 Panini Select #139",
-      "2021-22 Panini Select #112"
+      "2021-22 Panini Select #112",
+      "2024-25 Panini Select #120",
+      "2024-25 Panini Select #356"
+    ]);
+    const orderedCards = new Set([
+      "Aaron Gordon - 2014-15 Panini Select #292",
+      "Aaron Gordon - 2018-19 Panini Select #101",
+      "Aaron Gordon - 2020-21 Panini Select #134",
+      "Aaron Gordon - 2021-22 Panini Select #208",
+      "Jamal Murray - 2022-23 Panini Select #239",
+      "Jamal Murray - 2023-24 Panini Select #35",
+      "Jamal Murray - 2024-25 Panini Select #120"
     ]);
 
     missingCards.forEach((card) => {
@@ -114,12 +125,14 @@
       link.rel = "noopener";
       link.textContent = "Search on eBay";
 
-      if (
-        (card.player === "Jamal Murray" && inboundMurrayCards.has(card.title)) ||
-        (card.player === "Nikola Jokic" && card.title === "2021-22 Panini Select Concourse #82")
-      ) {
+      const cardKey = `${card.player} - ${card.title}`;
+
+      if (orderedCards.has(cardKey)) {
         row.style.textDecoration = "line-through";
         row.style.textDecorationColor = "red";
+        row.style.textDecorationThickness = "2px";
+      } else if (card.player === "Jamal Murray" && acquiredMurrayCards.has(card.title)) {
+        row.style.textDecoration = "line-through";
         row.style.textDecorationThickness = "2px";
       }
 
