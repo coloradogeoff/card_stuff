@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
@@ -28,6 +28,19 @@ API_DEFAULT_HEADERS = {
     "Referer": "https://www.psacard.com/",
 }
 
+_CERT_API_URL = "https://api.psacard.com/publicapi/cert/GetByCertNumber/{cert}"
+_IMAGES_API_URL = "https://api.psacard.com/publicapi/cert/GetImagesByCertNumber/{cert}"
+
+_CURL_STATUS_MARKER = "__HTTP_STATUS__"
+
+_YEAR_RE = re.compile(r"(19|20)\d{2}")
+
+_FRONT_TAGS = ("front", "obverse", "recto")
+_BACK_TAGS = ("back", "reverse", "verso")
+_FRONT_RE = re.compile(r"front|obverse|recto")
+_BACK_RE = re.compile(r"back|reverse|verso")
+
+
 def _first_match(patterns: List[str], text: str) -> Optional[str]:
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
@@ -36,7 +49,9 @@ def _first_match(patterns: List[str], text: str) -> Optional[str]:
     return None
 
 
-def _walk_json(obj, key_names: List[str]) -> List[str]:
+def _walk_json(obj, key_names) -> List[str]:
+    if not isinstance(key_names, frozenset):
+        key_names = frozenset(key_names)
     matches: List[str] = []
     if isinstance(obj, dict):
         for key, value in obj.items():
@@ -91,6 +106,21 @@ def _collect_strings(obj) -> List[str]:
     return values
 
 
+def _extract_year_str(text: str) -> Optional[str]:
+    m = _YEAR_RE.search(text)
+    return m.group(0) if m else None
+
+
+def _is_security_check_html(text: str) -> bool:
+    lower = text.lower()
+    return "<title>security check</title>" in lower or lower.lstrip().startswith("<!doctype html")
+
+
+def _save_debug_json(path: Path, obj: dict) -> None:
+    path.write_text(json.dumps(obj, indent=2, sort_keys=True), encoding="utf-8")
+    typer.echo(f"Saved JSON to {path}")
+
+
 def _load_token(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -116,9 +146,9 @@ def _load_token(value: Optional[str]) -> Optional[str]:
 def _extract_year_from_json(data: dict) -> Optional[str]:
     candidates = _walk_json(data, ["year", "cardyear", "certyear"])
     for candidate in candidates:
-        match = re.search(r"(19|20)\d{2}", str(candidate))
-        if match:
-            return match.group(0)
+        year = _extract_year_str(str(candidate))
+        if year:
+            return year
     return _first_match([r"\b(19|20)\d{2}\b"], " ".join(_collect_strings(data)))
 
 
@@ -265,13 +295,9 @@ def _extract_image_urls_from_json(data) -> Tuple[List[str], Optional[str], Optio
         url = _normalize_url(raw.strip(), base_url)
         urls.append(url)
         hint = " ".join(filter(None, [key_hint, type_hint])).lower()
-        if not front and re.search(r"(front|obverse|recto)", hint):
+        if not front and _FRONT_RE.search(hint):
             front = url
-        if not back and re.search(r"(back|reverse|verso)", hint):
-            back = url
-        if not front and key_hint and "front" in key_hint.lower():
-            front = url
-        if not back and key_hint and "back" in key_hint.lower():
+        if not back and _BACK_RE.search(hint):
             back = url
 
     def walk(obj) -> None:
@@ -312,16 +338,10 @@ def _extract_image_urls_from_json(data) -> Tuple[List[str], Optional[str], Optio
 
     walk(data)
 
-    seen = set()
-    unique_urls: List[str] = []
-    for url in urls:
-        if url not in seen:
-            unique_urls.append(url)
-            seen.add(url)
-    return unique_urls, front, back
+    return list(dict.fromkeys(urls)), front, back
 
 
-def _has_face_tag(url: str, tags: List[str]) -> bool:
+def _has_face_tag(url: str, tags: Tuple[str, ...]) -> bool:
     for tag in tags:
         pattern = rf"(?<![a-z0-9]){re.escape(tag)}(?![a-z0-9])"
         if re.search(pattern, url, flags=re.IGNORECASE):
@@ -336,20 +356,20 @@ def _pick_front_back(image_urls: List[str]) -> Tuple[str, str]:
     front_candidates: List[str] = []
     back_candidates: List[str] = []
     for url in image_urls:
-        if _has_face_tag(url, ["front", "obverse", "recto"]):
+        if _has_face_tag(url, _FRONT_TAGS):
             front_candidates.append(url)
-        if _has_face_tag(url, ["back", "reverse", "verso"]):
+        if _has_face_tag(url, _BACK_TAGS):
             back_candidates.append(url)
 
     front = front_candidates[0] if front_candidates else None
     back = back_candidates[0] if back_candidates else None
 
     if front and not back:
-        back_guess = re.sub(r"front", "back", front, flags=re.IGNORECASE)
+        back_guess = re.sub(r"\bfront\b", "back", front, flags=re.IGNORECASE)
         if back_guess != front:
             back = back_guess
     if back and not front:
-        front_guess = re.sub(r"back", "front", back, flags=re.IGNORECASE)
+        front_guess = re.sub(r"\bback\b", "front", back, flags=re.IGNORECASE)
         if front_guess != back:
             front = front_guess
 
@@ -392,15 +412,13 @@ def _fetch_api_json(
 def _fetch_cert_data(
     session: requests.Session, cert: str, verbose: bool = False
 ) -> Tuple[dict, str]:
-    url = f"https://api.psacard.com/publicapi/cert/GetByCertNumber/{cert}"
-    return _fetch_api_json(session, url, verbose=verbose)
+    return _fetch_api_json(session, _CERT_API_URL.format(cert=cert), verbose=verbose)
 
 
 def _fetch_images_data(
     session: requests.Session, cert: str, verbose: bool = False
 ) -> Tuple[dict, str]:
-    url = f"https://api.psacard.com/publicapi/cert/GetImagesByCertNumber/{cert}"
-    return _fetch_api_json(session, url, verbose=verbose)
+    return _fetch_api_json(session, _IMAGES_API_URL.format(cert=cert), verbose=verbose)
 
 
 def _fetch_api_json_via_curl(
@@ -414,7 +432,7 @@ def _fetch_api_json_via_curl(
         "-sS",
         "-L",
         "-w",
-        "\\n__HTTP_STATUS__%{http_code}",
+        f"\\n{_CURL_STATUS_MARKER}%{{http_code}}",
         "-H",
         f"Authorization: bearer {token}",
         "-H",
@@ -428,9 +446,9 @@ def _fetch_api_json_via_curl(
         stderr = result.stderr.strip() or "curl failed"
         raise RuntimeError(f"curl error: {stderr}")
     stdout = result.stdout
-    if "__HTTP_STATUS__" not in stdout:
+    if _CURL_STATUS_MARKER not in stdout:
         raise RuntimeError("curl did not return a status code.")
-    payload, status_line = stdout.rsplit("__HTTP_STATUS__", 1)
+    payload, status_line = stdout.rsplit(_CURL_STATUS_MARKER, 1)
     payload = payload.strip()
     status_line = status_line.strip()
     try:
@@ -442,14 +460,12 @@ def _fetch_api_json_via_curl(
     if status_code == 429:
         raise RuntimeError("PSA API rate limit exceeded (429).")
     if not (200 <= status_code < 300):
-        if payload:
-            preview = payload.strip()
-            if "<title>security check</title>" in preview.lower():
-                raise RuntimeError("curl received a Security Check page instead of JSON.")
+        if payload and _is_security_check_html(payload):
+            raise RuntimeError("curl received a Security Check page instead of JSON.")
         raise RuntimeError(f"PSA API returned status {status_code}.")
     if not payload:
         raise RuntimeError("curl returned an empty response.")
-    if payload.lstrip().lower().startswith("<!doctype html") or "<title>security check</title>" in payload.lower():
+    if _is_security_check_html(payload):
         raise RuntimeError("curl received a Security Check page instead of JSON.")
     try:
         return json.loads(payload), url
@@ -458,13 +474,11 @@ def _fetch_api_json_via_curl(
 
 
 def _fetch_cert_data_via_curl(cert: str, token: str, verbose: bool = False) -> Tuple[dict, str]:
-    url = f"https://api.psacard.com/publicapi/cert/GetByCertNumber/{cert}"
-    return _fetch_api_json_via_curl(url, token, verbose=verbose)
+    return _fetch_api_json_via_curl(_CERT_API_URL.format(cert=cert), token, verbose=verbose)
 
 
 def _fetch_images_data_via_curl(cert: str, token: str, verbose: bool = False) -> Tuple[dict, str]:
-    url = f"https://api.psacard.com/publicapi/cert/GetImagesByCertNumber/{cert}"
-    return _fetch_api_json_via_curl(url, token, verbose=verbose)
+    return _fetch_api_json_via_curl(_IMAGES_API_URL.format(cert=cert), token, verbose=verbose)
 
 
 def _download_image(session: requests.Session, url: str) -> bytes:
@@ -560,16 +574,8 @@ def fetch(
     )
 
     if save_json:
-        cert_json_path = out_dir / f"{cert}_psa.json"
-        cert_json_path.write_text(
-            json.dumps(data, indent=2, sort_keys=True), encoding="utf-8"
-        )
-        typer.echo(f"Saved JSON to {cert_json_path}")
-        images_json_path = out_dir / f"{cert}_psa_images.json"
-        images_json_path.write_text(
-            json.dumps(images_data, indent=2, sort_keys=True), encoding="utf-8"
-        )
-        typer.echo(f"Saved JSON to {images_json_path}")
+        _save_debug_json(out_dir / f"{cert}_psa.json", data)
+        _save_debug_json(out_dir / f"{cert}_psa_images.json", images_data)
 
     image_urls, front_url, back_url = _extract_image_urls_from_json(images_data)
     try:
@@ -596,8 +602,7 @@ def fetch(
     final_variety = variety or details.get("variety")
     final_card_number = details.get("card_number")
 
-    year_match = re.search(r"(19|20)\d{2}", final_year)
-    final_year = year_match.group(0) if year_match else final_year
+    final_year = _extract_year_str(final_year) or final_year
 
     final_lastname = _smart_title(final_lastname) or final_lastname
     final_manufacturer = _smart_title(final_manufacturer) or final_manufacturer
