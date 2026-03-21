@@ -10,9 +10,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -20,9 +22,114 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QCheckBox,
     QPlainTextEdit,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+
+APP_STYLE = """
+QWidget {
+    background-color: #f0f2f5;
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    color: #1a1a2e;
+}
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #dde1e7;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 10px 12px 12px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 4px;
+}
+QPlainTextEdit {
+    background-color: #fafbfc;
+    border: 1px solid #dde1e7;
+    border-radius: 7px;
+    padding: 8px 10px;
+    font-family: "Menlo", "Courier New", monospace;
+    font-size: 13px;
+    color: #1a1a2e;
+    selection-background-color: #4f8ef7;
+}
+QPlainTextEdit:focus {
+    border-color: #4f8ef7;
+    background-color: #ffffff;
+    outline: none;
+}
+QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #dde1e7;
+    border-radius: 7px;
+    padding: 5px 10px;
+    min-height: 30px;
+    color: #1a1a2e;
+}
+QComboBox:focus {
+    border-color: #4f8ef7;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    border: 1px solid #dde1e7;
+    border-radius: 7px;
+    selection-background-color: #e8f0fe;
+    selection-color: #1a1a2e;
+}
+QPushButton#printBtn {
+    background-color: #4f8ef7;
+    color: #ffffff;
+    border: none;
+    border-radius: 9px;
+    padding: 11px 0;
+    font-size: 14px;
+    font-weight: 700;
+    min-height: 44px;
+    letter-spacing: 0.3px;
+}
+QPushButton#printBtn:hover {
+    background-color: #3a7de8;
+}
+QPushButton#printBtn:pressed {
+    background-color: #2d6dd4;
+}
+QCheckBox {
+    spacing: 8px;
+    color: #4b5563;
+    font-size: 13px;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background-color: #ffffff;
+}
+QCheckBox::indicator:checked {
+    background-color: #4f8ef7;
+    border-color: #4f8ef7;
+}
+QFrame#divider {
+    color: #e5e7eb;
+}
+QLabel#infoLabel {
+    color: #9ca3af;
+    font-size: 11px;
+}
+"""
 
 from make_envelope_pdf import make_envelope_pdf
 
@@ -146,45 +253,67 @@ class EnvelopeWindow(QWidget):
         self.size_combo = QComboBox()
         self.size_combo.addItems(self.printer.available_labels())
         self.size_combo.currentTextChanged.connect(self.update_info_label)
+
         self.remove_pdf_toggle = QCheckBox("Remove PDF after print")
         self.remove_pdf_toggle.setChecked(True)
 
         self.return_edit = QPlainTextEdit()
         self.return_edit.setPlainText("\n".join(DEFAULT_RETURN_LINES))
+        self.return_edit.setFixedHeight(100)
 
         self.to_edit = QPlainTextEdit()
         self.to_edit.setPlainText("\n".join(DEFAULT_TO_LINES))
+        self.to_edit.setFixedHeight(120)
 
-        return_box = QGroupBox("Return address")
+        return_box = QGroupBox("Return Address")
         return_layout = QVBoxLayout()
+        return_layout.setContentsMargins(8, 8, 8, 8)
         return_layout.addWidget(self.return_edit)
         return_box.setLayout(return_layout)
 
-        to_box = QGroupBox("Send to")
+        to_box = QGroupBox("Send To")
         to_layout = QVBoxLayout()
+        to_layout.setContentsMargins(8, 8, 8, 8)
         to_layout.addWidget(self.to_edit)
         to_box.setLayout(to_layout)
 
-        self.print_button = QPushButton("Print")
+        self.print_button = QPushButton("🖨  Print Envelope")
+        self.print_button.setObjectName("printBtn")
+        self.print_button.setCursor(Qt.PointingHandCursor)
+        self.print_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.print_button.clicked.connect(self.handle_print)
 
-        size_box = QGroupBox("Envelope size")
+        size_box = QGroupBox("Envelope Size")
         size_layout = QHBoxLayout()
+        size_layout.setContentsMargins(8, 8, 8, 8)
+        size_layout.setSpacing(12)
         size_layout.addWidget(self.size_combo)
         size_layout.addWidget(self.remove_pdf_toggle)
         size_box.setLayout(size_layout)
 
+        divider = QFrame()
+        divider.setObjectName("divider")
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+
         self.info_label = QLabel()
+        self.info_label.setObjectName("infoLabel")
+        self.info_label.setAlignment(Qt.AlignCenter)
         self.update_info_label()
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
         layout.addWidget(size_box)
         layout.addWidget(return_box)
         layout.addWidget(to_box)
+        layout.addSpacing(4)
         layout.addWidget(self.print_button)
+        layout.addWidget(divider)
         layout.addWidget(self.info_label)
         self.setLayout(layout)
-        self.resize(540, 520)
+        self.setFixedWidth(520)
+        self.adjustSize()
 
     def _size_spec(self) -> EnvelopeSpec:
         size = self.size_combo.currentText()
@@ -236,11 +365,11 @@ class EnvelopeWindow(QWidget):
                 )
                 return
 
-        QMessageBox.information(self, "Printed", "Envelope sent to printer.")
 
 
 def main() -> None:
     app = QApplication(sys.argv)
+    app.setStyleSheet(APP_STYLE)
     printer = EnvelopePrinter(PRINT_SETTINGS, ENVELOPE_SPECS)
     window = EnvelopeWindow(printer)
     window.show()
