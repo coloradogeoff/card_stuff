@@ -25,11 +25,10 @@ def get_perimeter_pixels(img):
     perimeter = np.vstack([top, bottom, left, right])
     return perimeter
 
-def create_average_fill_image(size, images):
+def average_perimeter_color(images):
     all_perims = [get_perimeter_pixels(img) for img in images]
     combined = np.vstack(all_perims)
-    avg_color = tuple(combined.mean(axis=0).astype(np.uint8))
-    return Image.new('RGB', size, avg_color)
+    return tuple(combined.mean(axis=0).astype(np.uint8))
 
 def merge_images(image_files, output_file=None):
     n = len(image_files)
@@ -43,8 +42,7 @@ def merge_images(image_files, output_file=None):
         merged_height = rows * height
         merged_image = Image.new("RGB", (merged_width, merged_height))
 
-        # Paste top 2 images
-        for i in [0, 1]:
+        for i in range(2):
             merged_image.paste(images[i], (i * width, 0))
 
     elif n == 3:
@@ -64,11 +62,7 @@ def merge_images(image_files, output_file=None):
         cols_top = 3
         rows = 2
 
-        # Create fill image (uniform background color)
-        fill_img = create_average_fill_image((width, height), images)
-
-        # Get the single color from fill_img (any pixel will have the same value)
-        fill_color = fill_img.getpixel((0, 0))
+        fill_color = average_perimeter_color(images)
 
         merged_width = cols_top * width
         merged_height = rows * height
@@ -120,6 +114,9 @@ def main():
     if '-e' in args:
         use_even = True
         args.remove('-e')
+
+    if not args:
+        args = ['card*']
     
     # Expand any wildcard arguments into a complete list of files.
     files = []
@@ -129,39 +126,19 @@ def main():
         else:
             files.append(arg)
     
-    # Use a regular expression to extract the sequence number before the .jpg extension.
-    # This assumes your files are named like: card_20250310_0001.jpg
     pattern = re.compile(r'(\d+)(?=\.jpg$)', re.IGNORECASE)
-    filtered_files = []
-    for file in files:
-        match = pattern.search(file)
-        if match:
-            num = int(match.group(1))
-            if use_even:
-                if num % 2 == 0:
-                    filtered_files.append(file)
-            else:
-                if num % 2 == 1:
-                    filtered_files.append(file)
-        else:
-            # Optionally handle files that do not match the expected pattern.
-            pass
+    file_nums = {f: int(m.group(1)) for f in files if (m := pattern.search(f))}
 
-    # Sort files by the extracted number to ensure proper order.
-    def sort_key(filename):
-        m = pattern.search(filename)
-        return int(m.group(1)) if m else 0
+    parity = 0 if use_even else 1
+    filtered_files = sorted(
+        [f for f, n in file_nums.items() if n % 2 == parity],
+        key=file_nums.get,
+    )
+    ordered_touch_files = sorted(file_nums, key=file_nums.get)
 
-    filtered_files.sort(key=sort_key)
-    ordered_touch_files = sorted({f for f in files if pattern.search(f)}, key=sort_key)
-
-    # Continue with your merging process using filtered_files
     print("Merging files:", filtered_files)
     merged_file = merge_images(filtered_files)
     touch_files_in_order(ordered_touch_files, merged_file)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python merge_images.py image1.jpg image2.jpg ...")
-    else:
-        main()
+    main()

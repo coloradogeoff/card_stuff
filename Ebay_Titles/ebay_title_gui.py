@@ -46,6 +46,9 @@ _last_call_time = 0.0
 _MIN_INTERVAL = 0.5
 _client = None
 _openai_api_key = None
+_instructions_cache: dict = {}
+
+_TITLE_PATTERN = re.compile(r"^\s*(?:\d+\.\s*)?\**\s*title\s*:\s*(.+)$", re.IGNORECASE)
 
 
 def _ensure_typing_extensions_override():
@@ -63,15 +66,15 @@ _ensure_typing_extensions_override()
 from openai import OpenAI
 
 
-def load_instructions(category: str) -> str:
-    rules_path = Path(__file__).parent / "instructions.yaml"
-    with open(rules_path, "r", encoding="utf-8") as file_handle:
-        data = yaml.safe_load(file_handle) or {}
-    return data.get(category, "")
-
-
 def instructions_file_path() -> Path:
     return Path(__file__).parent / "instructions.yaml"
+
+
+def load_instructions(category: str) -> str:
+    if category not in _instructions_cache:
+        with open(instructions_file_path(), "r", encoding="utf-8") as file_handle:
+            _instructions_cache.update(yaml.safe_load(file_handle) or {})
+    return _instructions_cache.get(category, "")
 
 
 def load_openai_api_key() -> str:
@@ -145,17 +148,18 @@ def build_messages(
     system = load_instructions(category)
     if ocr_text:
         system += f"Text found on the front of the item: {ocr_text}\n"
-    if category == "sports_cards" and set_override:
-        system += (
-            "Card set override: Use exactly the following card set string in the title "
-            f"(season years + manufacturer + set name): {set_override}\n"
-        )
-    if category == "sports_cards" and variety_override:
-        system += (
-            "Variety override: Use exactly the following value for the "
-            "[Variety/Parallel/Color] section in the title: "
-            f"{variety_override}\n"
-        )
+    if category == "sports_cards":
+        if set_override:
+            system += (
+                "Card set override: Use exactly the following card set string in the title "
+                f"(season years + manufacturer + set name): {set_override}\n"
+            )
+        if variety_override:
+            system += (
+                "Variety override: Use exactly the following value for the "
+                "[Variety/Parallel/Color] section in the title: "
+                f"{variety_override}\n"
+            )
 
     messages = [{"role": "system", "content": system}]
     for image in images:
@@ -192,7 +196,7 @@ def chat_with_openai(messages):
         _last_call_time = time.time()
 
     return _client.chat.completions.create(
-        model="gpt-5.2",
+        model="gpt-5.4",
         messages=messages,
         max_completion_tokens=500,
     )
@@ -226,9 +230,8 @@ def process_pair(
     content = (response.choices[0].message.content or "").strip()
     lines = [line.strip() for line in content.splitlines() if line.strip()]
     title = ""
-    title_pattern = re.compile(r"^\s*(?:\d+\.\s*)?\**\s*title\s*:\s*(.+)$", re.IGNORECASE)
     for line in lines:
-        title_match = title_pattern.match(line)
+        title_match = _TITLE_PATTERN.match(line)
         if title_match:
             title = title_match.group(1).strip().replace("*", "")
             break
@@ -596,6 +599,13 @@ class EbayTitleGui(QWidget):
             self.directory_edit.setText(directory)
             self.refresh_images()
 
+    def _on_directory_error(self, message: str):
+        self.append_log(message)
+        self.submit_button.setEnabled(False)
+        self.select_all_button.setEnabled(False)
+        self.select_none_button.setEnabled(False)
+        self.update_view_descriptions_button(None)
+
     def refresh_images(self):
         self.image_list.clear()
         self.image_pairs = []
@@ -607,19 +617,11 @@ class EbayTitleGui(QWidget):
         try:
             directory = Path(self.directory_edit.text()).expanduser().resolve()
             if not directory.exists() or not directory.is_dir():
-                self.append_log("Selected directory is invalid.")
-                self.submit_button.setEnabled(False)
-                self.select_all_button.setEnabled(False)
-                self.select_none_button.setEnabled(False)
-                self.update_view_descriptions_button(None)
+                self._on_directory_error("Selected directory is invalid.")
                 return
             files = list_image_files(directory)
         except Exception as exc:
-            self.append_log(f"Failed to read directory: {exc}")
-            self.submit_button.setEnabled(False)
-            self.select_all_button.setEnabled(False)
-            self.select_none_button.setEnabled(False)
-            self.update_view_descriptions_button(None)
+            self._on_directory_error(f"Failed to read directory: {exc}")
             return
 
         if len(files) % 2 == 0 and files:

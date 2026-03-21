@@ -65,7 +65,26 @@ _last_call_time = 0.0
 _MIN_INTERVAL = 0.5
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 PREVIEW_HEIGHT = 800
-GUI_MODEL = "gpt-5.2"
+GUI_MODEL = "gpt-5.4"
+
+_UNKNOWN_DETAILS: Dict[str, str] = {
+    "year": "Unknown",
+    "last_name": "Unknown",
+    "manufacturer": "Unknown",
+    "series": "Unknown",
+    "number": "Unknown",
+}
+
+_BRANDS_RE = r"(?:panini|topps|upper\s*deck|donruss|fleer|bowman|leaf|score)"
+_RE_SET_SEASON_AFTER = re.compile(
+    rf"((?:19|20)\d{{2}})\s*[-/]\s*(\d{{2}}|(?:19|20)\d{{2}})[^\n]{{0,60}}\b{_BRANDS_RE}\b",
+    flags=re.IGNORECASE,
+)
+_RE_SET_SEASON_BEFORE = re.compile(
+    rf"\b{_BRANDS_RE}\b[^\n]{{0,60}}((?:19|20)\d{{2}})\s*[-/]\s*(\d{{2}}|(?:19|20)\d{{2}})",
+    flags=re.IGNORECASE,
+)
+_RE_COPYRIGHT_TRIGGER = re.compile(r"(?:copyright|\(c\)|©|\(©\))", flags=re.IGNORECASE)
 
 
 def _rate_limited_chat(messages, model: str):
@@ -211,6 +230,10 @@ def _normalize_year(value: Optional[str], fallback_text: str, prefer_last: bool 
     return "Unknown"
 
 
+def _expand_short_year(yy: int) -> int:
+    return 2000 + yy if yy <= 79 else 1900 + yy
+
+
 def _extract_season_year(text: str) -> Optional[str]:
     """Extract the start year from a season string like 2024-25, 2024/25, or 24-25.
 
@@ -236,16 +259,13 @@ def _extract_season_year(text: str) -> Optional[str]:
             yy = int(m.group(1))
         except Exception:
             continue
-        # Heuristic: treat 00-79 as 2000s (NBA modern era); otherwise 1900s.
-        start = 2000 + yy if yy <= 79 else 1900 + yy
-        candidates.append(start)
+        candidates.append(_expand_short_year(yy))
 
     if not candidates:
         return None
     return str(max(candidates))
 
 
-# Prefer the set season year when it appears near the manufacturer name.
 def _extract_set_season_year(text: str) -> Optional[str]:
     """Prefer the set season year when it appears near the manufacturer name.
 
@@ -255,28 +275,16 @@ def _extract_set_season_year(text: str) -> Optional[str]:
     if not text:
         return None
 
-    brands = r"(?:panini|topps|upper\s*deck|donruss|fleer|bowman|leaf|score)"
-    # Season then brand (common on card backs)
-    pat_after = re.compile(
-        rf"((?:19|20)\d{{2}})\s*[-/]\s*(\d{{2}}|(?:19|20)\d{{2}})[^\n]{{0,60}}\b{brands}\b",
-        flags=re.IGNORECASE,
-    )
-    # Brand then season (less common)
-    pat_before = re.compile(
-        rf"\b{brands}\b[^\n]{{0,60}}((?:19|20)\d{{2}})\s*[-/]\s*(\d{{2}}|(?:19|20)\d{{2}})",
-        flags=re.IGNORECASE,
-    )
-
     found: List[str] = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
-        m = pat_after.search(line)
+        m = _RE_SET_SEASON_AFTER.search(line)
         if m:
             found.append(m.group(1))
             continue
-        m = pat_before.search(line)
+        m = _RE_SET_SEASON_BEFORE.search(line)
         if m:
             found.append(m.group(1))
 
@@ -284,12 +292,11 @@ def _extract_set_season_year(text: str) -> Optional[str]:
 
 
 def _extract_copyright_year(text: str) -> Optional[str]:
+    # Many cards use the © symbol rather than the word "copyright".
     if not text:
         return None
-    # Many cards use the © symbol rather than the word "copyright".
-    trigger = re.compile(r"(?:copyright|\(c\)|©|\(©\))", flags=re.IGNORECASE)
     for line in text.splitlines():
-        if trigger.search(line):
+        if _RE_COPYRIGHT_TRIGGER.search(line):
             years = re.findall(r"(?:19|20)\d{2}", line)
             if years:
                 return years[-1]
@@ -311,8 +318,7 @@ def _extract_short_season_end_year(text: str) -> Optional[str]:
             yy2 = int(m.group(2))
         except Exception:
             continue
-        end = 2000 + yy2 if yy2 <= 79 else 1900 + yy2
-        candidates.append(end)
+        candidates.append(_expand_short_year(yy2))
 
     if not candidates:
         return None
@@ -432,14 +438,7 @@ def _parse_card_filename_for_tcdb(path_or_name: str, back_suffix: str = "_b") ->
 
     parts = [p for p in stem.split("-") if p]
 
-    out = {
-        "year": "Unknown",
-        "last_name": "Unknown",
-        "manufacturer": "Unknown",
-        "series": "Unknown",
-        "variety": "",
-        "number": "Unknown",
-    }
+    out = {**_UNKNOWN_DETAILS, "variety": ""}
 
     if len(parts) < 5:
         return out
@@ -555,13 +554,7 @@ def _describe_pair(
     content = response.choices[0].message.content or ""
     details = _parse_response(content)
     if not details:
-        details = {
-            "year": "Unknown",
-            "last_name": "Unknown",
-            "manufacturer": "Unknown",
-            "series": "Unknown",
-            "number": "Unknown",
-        }
+        details = dict(_UNKNOWN_DETAILS)
     combined_text = "\n".join(
         part
         for part in (ocr_front, ocr_back, ocr_back_bottom, details.get("year", ""))
@@ -593,20 +586,11 @@ def _describe_pair(
             (details.get("manufacturer") or "").strip().lower() == "topps"
             or "topps" in combined_text.lower()
         )
-        if is_topps:
-            end_year = _extract_short_season_end_year(combined_text)
-            if end_year:
-                details["year"] = end_year
-            else:
-                season_year = _extract_season_year(combined_text)
-                if season_year:
-                    details["year"] = season_year
-        else:
-            season_year = _extract_season_year(combined_text)
-            if season_year:
-                details["year"] = season_year
-        if details.get("year") in (None, ""):
-            details["year"] = "Unknown"
+        year = (
+            _extract_short_season_end_year(combined_text) if is_topps else None
+        ) or _extract_season_year(combined_text)
+        if year:
+            details["year"] = year
         if not details.get("year") or details.get("year") == "Unknown":
             bottom_year = _normalize_year(None, ocr_back_bottom, prefer_last=True)
             if bottom_year != "Unknown":
@@ -788,19 +772,9 @@ def _name_to_search_terms(value: str) -> str:
     value = value.strip()
     if not value:
         return ""
-    chars: List[str] = []
-    length = len(value)
-    for index, char in enumerate(value):
-        if char != "-":
-            chars.append(char)
-            continue
-        prev_is_digit = index > 0 and value[index - 1].isdigit()
-        next_is_digit = index + 1 < length and value[index + 1].isdigit()
-        if prev_is_digit and next_is_digit:
-            chars.append(char)
-        else:
-            chars.append(" ")
-    return re.sub(r"\s+", " ", "".join(chars)).strip()
+    # Replace hyphens with spaces unless they fall between two digits (e.g. 24-25).
+    value = re.sub(r"(?<!\d)-|-(?!\d)", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
 
 
 class CardNamerGui(QWidget):
@@ -1139,27 +1113,27 @@ class CardNamerGui(QWidget):
         self.move_selected_button.setEnabled(has_selection and can_move)
         self.move_all_button.setEnabled(bool(self.image_pairs) and can_move)
 
-    def open_tcdb_search(self):
-        current = self.image_list.currentItem()
-        if current is None:
+    def _require_sanitized_name(self, action: str) -> Optional[str]:
+        """Validate selection + name and return sanitized name, or None on failure."""
+        if self.image_list.currentItem() is None:
             QMessageBox.warning(self, "No Pair Selected", "Select a card pair first.")
-            return
-
-        accepted_name = self.name_edit.text().strip()
-        if not accepted_name:
-            QMessageBox.warning(
-                self,
-                "Missing Name",
-                "Enter or accept a proposed name before opening TCDB search.",
-            )
-            return
-
-        sanitized = _sanitize_base_name(accepted_name)
+            return None
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Missing Name", f"Enter or accept a proposed name before {action}.")
+            return None
+        sanitized = _sanitize_base_name(name)
         if not sanitized:
             QMessageBox.warning(self, "Invalid Name", "Enter a valid card name.")
-            return
-        if sanitized != accepted_name:
+            return None
+        if sanitized != name:
             self.name_edit.setText(sanitized)
+        return sanitized
+
+    def open_tcdb_search(self):
+        sanitized = self._require_sanitized_name("opening TCDB search")
+        if sanitized is None:
+            return
 
         url = _tcdb_search_url_from_filename(f"{sanitized}.jpg", back_suffix="_b")
         opened = webbrowser.open(url, new=2)
@@ -1171,21 +1145,11 @@ class CardNamerGui(QWidget):
         self.append_log(f"Opened TCDB search: {url}")
 
     def open_ebay_search(self):
-        current = self.image_list.currentItem()
-        if current is None:
-            QMessageBox.warning(self, "No Pair Selected", "Select a card pair first.")
+        sanitized = self._require_sanitized_name("opening eBay search")
+        if sanitized is None:
             return
 
-        accepted_name = self.name_edit.text().strip()
-        if not accepted_name:
-            QMessageBox.warning(
-                self,
-                "Missing Name",
-                "Enter or accept a proposed name before opening eBay search.",
-            )
-            return
-
-        search_terms = _name_to_search_terms(accepted_name)
+        search_terms = _name_to_search_terms(sanitized)
         if not search_terms:
             QMessageBox.warning(self, "Invalid Name", "Enter a valid card name.")
             return
