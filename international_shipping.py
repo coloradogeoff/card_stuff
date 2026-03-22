@@ -16,6 +16,8 @@ DEFAULT_SOURCE_DIR = Path("~/Downloads")
 DEFAULT_OUTPUT_DIR = Path("/Volumes/Dutton 2TB/Sales/shipping")
 DEFAULT_PROCESSED_DIR = Path("/Volumes/Dutton 2TB/Sales/shipping/processed")
 SOURCE_IMAGE_EXTENSIONS = {".heic", ".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
+MESSAGE_SINGLE = "Hello, and thank you for the business. Your card is on the way. I hope it reaches you safely and fast. Best Geoff"
+MESSAGE_PLURAL = "Hello, and thank you for the business. Your cards are on the way. I hope they reach you safely and fast. Best Geoff"
 
 # -------- Helpers --------
 
@@ -160,6 +162,7 @@ def main(
     input_path: Path | None = typer.Argument(
         None, help="Path to envelope photo (HEIC/PNG/JPG). Defaults to newest file in source dir."
     ),
+    plural: bool = typer.Option(False, "--plural", help="Use plural message (multiple cards)."),
 ):
     if input_path is None:
         input_path = newest_source_file(DEFAULT_SOURCE_DIR.expanduser().resolve())
@@ -189,8 +192,12 @@ def main(
 
     shutil.move(str(tmp_jpeg), str(final_path))
 
+    message = MESSAGE_PLURAL if plural else MESSAGE_SINGLE
+    subprocess.run(["pbcopy"], input=message.encode(), check=True)
+
     typer.echo(f"Country: {result.get('country')} (confidence={conf})")
     typer.echo(f"Saved: {final_path}")
+    typer.echo(f"Message ({'plural' if plural else 'single'}) copied to clipboard: {message}")
 
     # Step 4: move original HEIC only when confidence is high enough
     if conf > 0.75:
