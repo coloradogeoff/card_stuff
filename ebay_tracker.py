@@ -340,7 +340,10 @@ def emails_to_purchase_map(messages):
         items = parse_items_from_body(body)
 
         if items:
+            subject_name = strip_subject_prefix(subject)
             for name, item_id, est in items:
+                if not name and subject_name:
+                    name = subject_name
                 p = get_or_create_by_id(item_id, name, date_str if stage == 'CONFIRMED' else '?')
                 apply_update(p, stage, date_str, ts, name, est, mid)
         else:
@@ -498,7 +501,7 @@ def prompt_and_archive(service, state):
     if not active:
         return
 
-    print("Enter numbers of items you've received (e.g.  1 3 5),")
+    print("Enter numbers of items you've received (e.g.  1 3 5  or  2-8),")
     print("or press Enter to skip: ", end='', flush=True)
     raw = input().strip()
     if not raw:
@@ -506,10 +509,19 @@ def prompt_and_archive(service, state):
         return
 
     chosen = []
+    seen = set()
     for token in re.split(r'[\s,]+', raw):
-        if token.isdigit():
-            idx = int(token) - 1
-            if 0 <= idx < len(active):
+        m = re.fullmatch(r'(\d+)-(\d+)', token)
+        if m:
+            nums = range(int(m.group(1)), int(m.group(2)) + 1)
+        elif token.isdigit():
+            nums = [int(token)]
+        else:
+            continue
+        for n in nums:
+            idx = n - 1
+            if 0 <= idx < len(active) and idx not in seen:
+                seen.add(idx)
                 chosen.append(active[idx])
 
     if not chosen:
