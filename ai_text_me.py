@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
+import base64
+import datetime
 import os
 import random
 import subprocess
+import sys
 from pathlib import Path
 
 import anthropic
 
-# Pick one question at random each run.
 PROMPT_QUESTIONS = [
     "Who is famous that was born on this day? 240 chars or less bio.",
     "Give one notable historical event that happened on this day in 240 chars or less.",
@@ -14,8 +16,9 @@ PROMPT_QUESTIONS = [
     "Send me a hiku for today. 240 chars or less.",
 ]
 
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
-SHORTCUT_NAME = "Send Message"
+MODEL          = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
+SHORTCUT_NAME  = "Send Message"
+CARD_DIR       = Path("/Volumes/Dutton 2TB/Cards/Mix")
 DEFAULT_KEY_FILE = ".anthropic-api-key.txt"
 
 # cron often runs with a minimal PATH.
@@ -43,11 +46,48 @@ def get_api_key() -> str:
     )
 
 
-def build_message() -> str:
-    import datetime
+def pick_random_card() -> Path | None:
+    """Return a random front-facing JPG from CARD_DIR, or None if drive unavailable."""
+    if not CARD_DIR.exists():
+        return None
+    fronts = [p for p in CARD_DIR.glob("*.jpg") if not p.stem.endswith("_b")]
+    return random.choice(fronts) if fronts else None
+
+
+def get_card_caption(image_path: Path, client: anthropic.Anthropic) -> str:
+    """Send card image to Claude, get player name + quick fact under 200 chars."""
+    with open(image_path, "rb") as f:
+        image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=200,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": image_data},
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "This is a sports trading card. Who is the player? "
+                        "Reply with their name and one quick interesting fact. "
+                        "Keep the whole reply under 200 characters."
+                    ),
+                },
+            ],
+        }],
+    )
+
+    text = next((b.text for b in response.content if b.type == "text"), "")
+    return " ".join(text.split())
+
+
+def build_text_message(client: anthropic.Anthropic) -> str:
     today = datetime.date.today().strftime("%B %d, %Y")
     question = random.choice(PROMPT_QUESTIONS)
-    client = anthropic.Anthropic(api_key=get_api_key())
 
     response = client.messages.create(
         model=MODEL,
@@ -58,22 +98,37 @@ def build_message() -> str:
     text = next((b.text for b in response.content if b.type == "text"), "")
     if not text:
         raise RuntimeError("Claude returned no text")
-
     return " ".join(text.split())
 
 
-def send_via_shortcut(message: str) -> None:
-    subprocess.run(
-        ["shortcuts", "run", SHORTCUT_NAME],
-        input=message,
-        text=True,
-        check=True,
-    )
+def send_via_shortcut(name: str, message: str) -> None:
+    subprocess.run(["shortcuts", "run", name], input=message, text=True, check=True)
+
+
+def send_image_via_imessage(image_path: Path, caption: str) -> None:
+    # macOS blocks self-send file attachments via osascript, so send text only.
+    # Include card filename as context alongside the Claude caption.
+    card_name = image_path.stem.replace("-", " ")
+    message = f"{card_name}\n{caption}"
+    send_via_shortcut(SHORTCUT_NAME, message)
 
 
 def main() -> None:
-    message = build_message()
-    send_via_shortcut(message)
+    force_card = "--card" in sys.argv
+    client = anthropic.Anthropic(api_key=get_api_key())
+
+    if force_card or random.random() < 0.5:
+        card = pick_random_card()
+        if card:
+            caption = get_card_caption(card, client)
+            send_image_via_imessage(card, caption)
+            return
+        if force_card:
+            raise RuntimeError(f"Card directory not available: {CARD_DIR}")
+        # Drive not mounted — fall through to text message
+
+    message = build_text_message(client)
+    send_via_shortcut(SHORTCUT_NAME, message)
 
 
 if __name__ == "__main__":
