@@ -31,13 +31,14 @@ TOKEN_PATH = os.path.expanduser('~/.gmail-mcp/ebay-tracker-token.json')
 STATE_PATH = os.path.expanduser('~/.ebay_tracker.json')
 DAYS_BACK  = 40
 
-STAGES     = ['CONFIRMED', 'ORDER UPDATE', 'WITH CARRIER', 'DELIVERED']
+STAGES     = ['CONFIRMED', 'ORDER UPDATE', 'WITH CARRIER', 'OUT FOR DELIVERY', 'DELIVERED']
 STAGE_RANK = {s: i for i, s in enumerate(STAGES)}
 STAGE_LABEL = {
-    'CONFIRMED':    '⏳ Confirmed',
-    'ORDER UPDATE': '🔄 Order Update',
-    'WITH CARRIER': '📦 With Carrier',
-    'DELIVERED':    '✅ Delivered',
+    'CONFIRMED':         '⏳ Confirmed',
+    'ORDER UPDATE':      '🔄 Order Update',
+    'WITH CARRIER':      '📦 With Carrier',
+    'OUT FOR DELIVERY':  '🚚 Out for Delivery',
+    'DELIVERED':         '✅ Delivered',
 }
 W = 60  # display width
 
@@ -232,6 +233,10 @@ def classify_email(subject, body):
         return 'DELIVERED'
     if re.search(r'\bdelivered\b', subject, re.IGNORECASE):
         return 'DELIVERED'
+    if any(k in combined for k in ['out for delivery', 'almost there']):
+        return 'OUT FOR DELIVERY'
+    if re.search(r'out for delivery', subject, re.IGNORECASE):
+        return 'OUT FOR DELIVERY'
     if any(k in combined for k in ['with its carrier', 'tracking number',
                                     'package is now with', 'let the tracking begin']):
         return 'WITH CARRIER'
