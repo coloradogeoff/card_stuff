@@ -5,6 +5,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import anthropic
@@ -105,12 +106,24 @@ def send_via_shortcut(name: str, message: str) -> None:
     subprocess.run(["shortcuts", "run", name], input=message, text=True, check=True)
 
 
+def import_to_photos(image_path: Path) -> None:
+    """Import image into Photos under a 'cards' album, creating it if needed."""
+    script = f'''
+    tell application "Photos"
+        if not (exists album "cards") then
+            make new album named "cards"
+        end if
+        import POSIX file "{image_path}" into album "cards" skip check duplicates yes
+    end tell
+    '''
+    subprocess.run(["osascript", "-e", script], check=True)
+    time.sleep(3)  # give Photos time to finish importing
+
+
 def send_image_via_imessage(image_path: Path, caption: str) -> None:
-    # macOS blocks self-send file attachments via osascript, so send text only.
-    # Include card filename as context alongside the Claude caption.
-    card_name = image_path.stem.replace("-", " ")
-    message = f"{card_name}\n{caption}"
-    send_via_shortcut(SHORTCUT_NAME, message)
+    import_to_photos(image_path)
+    subprocess.run(["shortcuts", "run", "Text Latest Image"], check=True)
+    send_via_shortcut(SHORTCUT_NAME, caption)
 
 
 def main() -> None:
