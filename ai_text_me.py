@@ -74,7 +74,8 @@ def get_card_caption(image_path: Path, client: anthropic.Anthropic) -> str:
                     "type": "text",
                     "text": (
                         "This is a sports trading card. Who is the player? "
-                        "Reply with their name and one quick interesting fact. "
+                        "Reply with their name and one quick interesting fact — "
+                        "prefer something surprising or obscure over common stats or championships. "
                         "Plain text only, no markdown or formatting. "
                         "Keep the whole reply under 200 characters."
                     ),
