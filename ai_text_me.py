@@ -11,10 +11,10 @@ from pathlib import Path
 import anthropic
 
 PROMPT_QUESTIONS = [
-    "Who is famous that was born on this day? 240 chars or less bio.",
-    "Give one notable historical event that happened on this day in 240 chars or less.",
-    "What is one interesting science fact for today? Keep it under 240 chars.",
-    "Send me a hiku for today. 240 chars or less.",
+    "Who is famous that was born on this day? 240 chars or less bio. Plain text only, no markdown.",
+    "Give one notable historical event that happened on this day in 240 chars or less. Plain text only, no markdown.",
+    "What is one interesting science fact for today? Keep it under 240 chars. Plain text only, no markdown.",
+    "Send me a haiku for today. 240 chars or less. Plain text only, no markdown.",
 ]
 
 MODEL          = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
@@ -75,6 +75,7 @@ def get_card_caption(image_path: Path, client: anthropic.Anthropic) -> str:
                     "text": (
                         "This is a sports trading card. Who is the player? "
                         "Reply with their name and one quick interesting fact. "
+                        "Plain text only, no markdown or formatting. "
                         "Keep the whole reply under 200 characters."
                     ),
                 },
