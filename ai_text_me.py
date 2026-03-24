@@ -132,7 +132,7 @@ def main() -> None:
     force_card = "--card" in sys.argv
     client = anthropic.Anthropic(api_key=get_api_key())
 
-    if force_card or random.random() < 0.5:
+    if force_card or random.random() < 0.25:
         card = pick_random_card()
         if card:
             caption = get_card_caption(card, client)
