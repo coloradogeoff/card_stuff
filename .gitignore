@@ -3,4 +3,6 @@
 .tinyurl-token.txt
 .openai-api-key.txt
 __*
+__pycache__/
+*.pyc
 *.app/
