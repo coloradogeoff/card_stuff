@@ -22,10 +22,19 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import inch
-from reportlab.lib.colors import black, white
-from reportlab.pdfbase import pdfmetrics
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import inch
+    from reportlab.lib.colors import black, white
+    from reportlab.pdfbase import pdfmetrics
+    REPORTLAB_IMPORT_ERROR: ModuleNotFoundError | None = None
+except ModuleNotFoundError as exc:
+    canvas = None
+    inch = None
+    black = None
+    white = None
+    pdfmetrics = None
+    REPORTLAB_IMPORT_ERROR = exc
 
 
 
@@ -51,6 +60,11 @@ def make_envelope_pdf(
     to_shift_right_in: float = 0.5,    # move destination block further right
     content_rotation: str = "none",    # "none", "cw", or "ccw"
 ) -> str:
+    if REPORTLAB_IMPORT_ERROR is not None:
+        raise RuntimeError(
+            "Missing dependency: reportlab. Install it with `pip install reportlab`."
+        ) from REPORTLAB_IMPORT_ERROR
+
     W_page, H_page = page_w_in * inch, page_h_in * inch
     out_path = str(out_path)
     c = canvas.Canvas(out_path, pagesize=(W_page, H_page))
