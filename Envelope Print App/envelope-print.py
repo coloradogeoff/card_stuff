@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/geoff/opt/anaconda3/bin/python
 """
 PyQt5 UI to edit envelope addresses and print envelope PDFs.
 """
@@ -13,7 +13,7 @@ from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
-    QComboBox,
+    QButtonGroup,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QCheckBox,
     QPlainTextEdit,
+    QRadioButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -67,27 +68,23 @@ QPlainTextEdit:focus {
     background-color: #ffffff;
     outline: none;
 }
-QComboBox {
-    background-color: #ffffff;
-    border: 1px solid #dde1e7;
-    border-radius: 7px;
-    padding: 5px 10px;
-    min-height: 30px;
+QRadioButton {
+    spacing: 8px;
     color: #1a1a2e;
 }
-QComboBox:focus {
-    border-color: #4f8ef7;
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
 }
-QComboBox::drop-down {
-    border: none;
-    width: 20px;
-}
-QComboBox QAbstractItemView {
+QRadioButton::indicator:unchecked {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
     background-color: #ffffff;
-    border: 1px solid #dde1e7;
-    border-radius: 7px;
-    selection-background-color: #e8f0fe;
-    selection-color: #1a1a2e;
+}
+QRadioButton::indicator:checked {
+    border: 1px solid #4f8ef7;
+    border-radius: 8px;
+    background-color: #4f8ef7;
 }
 QPushButton#printBtn {
     background-color: #4f8ef7;
@@ -250,9 +247,16 @@ class EnvelopeWindow(QWidget):
         self.setWindowTitle("Envelope Print")
         self.printer = printer
 
-        self.size_combo = QComboBox()
-        self.size_combo.addItems(self.printer.available_labels())
-        self.size_combo.currentTextChanged.connect(self.update_info_label)
+        self.size_buttons = QButtonGroup(self)
+        self.size_button_map: dict[str, QRadioButton] = {}
+        for size in self.printer.available_labels():
+            button = QRadioButton(size)
+            self.size_buttons.addButton(button)
+            self.size_button_map[size] = button
+        default_size = self.size_button_map.get("5x7")
+        if default_size is None:
+            default_size = next(iter(self.size_button_map.values()))
+        default_size.setChecked(True)
 
         self.remove_pdf_toggle = QCheckBox("Remove PDF after print")
         self.remove_pdf_toggle.setChecked(True)
@@ -287,7 +291,9 @@ class EnvelopeWindow(QWidget):
         size_layout = QHBoxLayout()
         size_layout.setContentsMargins(8, 8, 8, 8)
         size_layout.setSpacing(12)
-        size_layout.addWidget(self.size_combo)
+        for button in self.size_button_map.values():
+            size_layout.addWidget(button)
+        size_layout.addStretch(1)
         size_layout.addWidget(self.remove_pdf_toggle)
         size_box.setLayout(size_layout)
 
@@ -299,6 +305,8 @@ class EnvelopeWindow(QWidget):
         self.info_label = QLabel()
         self.info_label.setObjectName("infoLabel")
         self.info_label.setAlignment(Qt.AlignCenter)
+        for button in self.size_button_map.values():
+            button.toggled.connect(self.update_info_label)
         self.update_info_label()
 
         layout = QVBoxLayout()
@@ -316,8 +324,10 @@ class EnvelopeWindow(QWidget):
         self.adjustSize()
 
     def _size_spec(self) -> EnvelopeSpec:
-        size = self.size_combo.currentText()
-        return self.printer.get_spec(size)
+        for size, button in self.size_button_map.items():
+            if button.isChecked():
+                return self.printer.get_spec(size)
+        return self.printer.get_spec("5x7")
 
     def update_info_label(self) -> None:
         spec = self._size_spec()
