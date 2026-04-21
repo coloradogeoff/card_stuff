@@ -31,6 +31,9 @@ python card_merge.py -e card*.jpg             # use even-numbered files
 
 python cropper.py -i "*.jpg"                  # auto-rotate/crop card images
 python cropper.py -i file.jpg -o              # overwrite in place
+
+python collectors_update.py                   # update all cards in CSV on collectors.com
+python collectors_update.py --dry-run         # print plan without saving changes
 ```
 
 ## API keys / credentials
@@ -41,6 +44,7 @@ Scripts look for credentials in this priority order:
 - **Anthropic** (`ai_text_me.py`): `ANTHROPIC_API_KEY` env var, or `.anthropic-api-key.txt` in repo/home
 - **PSA** (`psa_download.py`): `--token` arg, or `.psa-token.txt` in repo root or `~/.psa-token.txt`
 - **Gmail/eBay tracker** (`ebay_tracker.py`): OAuth via `~/.gmail-mcp/gcp-oauth.keys.json`, token cached at `~/.gmail-mcp/ebay-tracker-token.json`
+- **Collectors.com** (`collectors_update.py`): `PSA_USER` and `PSA_PASS` in `.env` in repo root
 
 ## Architecture notes
 
@@ -62,3 +66,5 @@ Scripts look for credentials in this priority order:
 **`card_merge.py`**: Combines front/back card photos into a grid. Defaults to odd-numbered files (fronts); `-e` flag selects even-numbered files (backs). Adjusts timestamps so the merged image sorts as newest.
 
 **`ai_text_me.py`**: Runs via macOS cron, calls Claude API, sends result as iMessage via a macOS Shortcut named "Send Message".
+
+**`collectors_update.py`**: Logs into app.collectors.com via Playwright and bulk-updates My Cost, Source, My Notes, and Date Acquired for cards listed in a CSV (matched by PSA cert number). Login is a two-step flow (email → Verify button → password → submit) at `/signin`. The cert→internal item ID mapping is built by intercepting API responses when the collection page loads — no need to return to the list between cards. Uses `playwright-stealth` to bypass Cloudflare. CSV path is hardcoded to `My Collection YYYYMMDD.csv` in the repo root; update the filename when exporting a new one. Requires `pip install playwright playwright-stealth python-dotenv` and `playwright install chromium`.
