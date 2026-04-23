@@ -65,6 +65,11 @@ Scripts look for credentials in this priority order:
 
 **`card_merge.py`**: Combines front/back card photos into a grid. Defaults to odd-numbered files (fronts); `-e` flag selects even-numbered files (backs). Adjusts timestamps so the merged image sorts as newest.
 
-**`ai_text_me.py`**: Runs via macOS cron, calls Claude API, sends result as iMessage via a macOS Shortcut named "Send Message".
+**`ai_text_me.py`**: Runs via macOS cron, calls Claude API, sends result as iMessage via macOS Shortcuts.
+- **Default (no flags)**: picks a random prompt from `PROMPT_QUESTIONS` (birthday, history, science, haiku) and sends via "Send Message" shortcut. Cron: 7am daily.
+- **`--card`**: two-step Claude call — (1) identify player name from a random card image in `/Volumes/Dutton 2TB/Cards/Mix`, (2) fetch a categorized fact avoiding the last 20 facts sent for that player. Imports image into Photos "cards" album, runs "Text Latest Image" shortcut to send the photo, then sends the caption via "Send Card Message" shortcut. Falls back to text message if drive is unmounted or Photos fails. Cron: 9:15pm Mon/Thu/Sat.
+- **`--test`**: dry run — picks a card and generates a caption, prints `filename\ncaption` to stdout without sending anything. Still saves the fact to history.
+- **Fact history**: `~/.card_facts_history.json` stores up to 20 facts per player (keyed by lowercase name). Edit this file directly to seed or remove facts.
+- **Fact categories** (`FACT_CATEGORIES`): rotates across early life, rookie season, specific season stats, records, personal life, quirky stories, pre-pro background, overlooked moments, adversity, and trades/signings.
 
 **`collectors_update.py`**: Logs into app.collectors.com via Playwright and bulk-updates My Cost, Source, My Notes, and Date Acquired for cards listed in a CSV (matched by PSA cert number). Login is a two-step flow (email → Verify button → password → submit) at `/signin`. The cert→internal item ID mapping is built by intercepting API responses when the collection page loads — no need to return to the list between cards. Uses `playwright-stealth` to bypass Cloudflare. CSV path is hardcoded to `My Collection YYYYMMDD.csv` in the repo root; update the filename when exporting a new one. Requires `pip install playwright playwright-stealth python-dotenv` and `playwright install chromium`.
