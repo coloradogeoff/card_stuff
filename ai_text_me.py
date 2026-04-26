@@ -24,6 +24,7 @@ CARD_SHORTCUT_NAME  = "Send Card Message"
 CARD_DIR            = Path("/Volumes/Dutton 2TB/Cards/Mix")
 DEFAULT_KEY_FILE    = ".anthropic-api-key.txt"
 FACTS_HISTORY_FILE  = Path.home() / ".card_facts_history.json"
+CARD_EXCLUDE_FILE   = Path.home() / ".card_facts_exclude.json"
 MAX_FACTS_PER_PLAYER = 20
 
 FACT_CATEGORIES = [
@@ -64,11 +65,30 @@ def get_api_key() -> str:
     )
 
 
+def _load_exclude_set() -> set[str]:
+    if CARD_EXCLUDE_FILE.exists():
+        try:
+            return set(json.loads(CARD_EXCLUDE_FILE.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            return set()
+    return set()
+
+
+def _mark_card_excluded(image_path: Path) -> None:
+    excluded = _load_exclude_set()
+    excluded.add(image_path.name)
+    CARD_EXCLUDE_FILE.write_text(json.dumps(sorted(excluded), indent=2), encoding="utf-8")
+
+
 def pick_random_card() -> Path | None:
     """Return a random front-facing JPG from CARD_DIR, or None if drive unavailable."""
     if not CARD_DIR.exists():
         return None
-    fronts = [p for p in CARD_DIR.glob("*.jpg") if not p.stem.endswith("_b")]
+    excluded = _load_exclude_set()
+    fronts = [
+        p for p in CARD_DIR.glob("*.jpg")
+        if not p.stem.endswith("_b") and p.name not in excluded
+    ]
     return random.choice(fronts) if fronts else None
 
 
@@ -225,6 +245,7 @@ def main(
         if card_path:
             caption = get_card_caption(card_path, client)
             if send_image_via_imessage(card_path, caption):
+                _mark_card_excluded(card_path)
                 return
             # Photos timed out — fall through to text message
         # Drive not mounted or send failed — fall through to text message
