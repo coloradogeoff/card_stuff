@@ -647,6 +647,26 @@ def _app_support_directory() -> Path:
     return target
 
 
+def _settings_path() -> Path:
+    return _app_support_directory() / "settings.json"
+
+
+def _load_settings() -> Dict[str, str]:
+    path = _settings_path()
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_settings(data: Dict[str, str]):
+    path = _settings_path()
+    try:
+        path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _default_cards_directory() -> Path:
     target = (Path.home() / "incoming cards").expanduser()
     try:
@@ -657,9 +677,12 @@ def _default_cards_directory() -> Path:
 
 
 def _existing_cards_directory() -> Path:
-    external_target = Path("/Volumes/Dutton 2TB/Cards/Mix")
-    if external_target.exists() and external_target.is_dir():
-        return external_target
+    settings = _load_settings()
+    saved_directory = settings.get("existing_cards_directory")
+    if saved_directory:
+        target = Path(saved_directory).expanduser()
+        if target.exists() and target.is_dir():
+            return target
 
     target = (_app_support_directory() / "Cards").expanduser()
     try:
@@ -898,13 +921,33 @@ class CardNamerGui(QWidget):
             self.directory_edit.setText(directory)
             self.refresh_images()
 
+    def choose_existing_cards_directory(self):
+        start_dir = str(self.existing_cards_directory)
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select Existing Card Images Directory", start_dir
+        )
+        if not directory:
+            return
+
+        chosen = Path(directory).expanduser()
+        self.existing_cards_directory = chosen
+        settings = _load_settings()
+        settings["existing_cards_directory"] = str(chosen)
+        _save_settings(settings)
+        self.directory_edit.setText(str(chosen))
+        self.append_log(f"Saved existing cards directory: {chosen}")
+        self.refresh_images()
+
     def use_incoming_directory(self):
         self.directory_edit.setText(str(self.incoming_cards_directory))
         self.refresh_images()
 
     def use_existing_directory(self):
-        self.directory_edit.setText(str(self.existing_cards_directory))
-        self.refresh_images()
+        if self.existing_cards_directory.exists() and self.existing_cards_directory.is_dir():
+            self.directory_edit.setText(str(self.existing_cards_directory))
+            self.refresh_images()
+            return
+        self.choose_existing_cards_directory()
 
     def set_watched_directory(self, directory: Optional[Path]):
         current_paths = self.fs_watcher.directories()
