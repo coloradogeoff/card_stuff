@@ -6,7 +6,7 @@ import Observation
 final class CardNamerViewModel {
 
     // Directory state
-    var directoryPath: String = SettingsStore.shared.quickDirectories.first?.path ?? "/Users/geoff/incoming cards"
+    var directoryPath: String = SettingsStore.shared.incomingDirectory.path
     var pairs: [CardPair] = []
     var selectedPairID: CardPair.ID? {
         didSet { proposedName = selectedPair?.baseName ?? "" }
