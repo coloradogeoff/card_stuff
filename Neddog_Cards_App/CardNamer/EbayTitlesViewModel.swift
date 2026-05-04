@@ -82,14 +82,14 @@ final class EbayTitlesViewModel {
         let prevChecked = checkedIDs
         pairs = newPairs
 
-        // Re-check pairs that were checked before (by front filename)
-        let prevFronts = prevChecked.compactMap { id in pairs.first { $0.id == id }?.front.lastPathComponent }
-        checkedIDs = Set(pairs.filter { pair in
-            prevFronts.contains(pair.front.lastPathComponent) || prevChecked.isEmpty
-        }.map(\.id))
-
-        // Default: check all
-        if prevChecked.isEmpty { checkedIDs = Set(pairs.map(\.id)) }
+        if prevChecked.isEmpty {
+            // First load: check pairs modified within the last hour
+            checkedIDs = Set(pairs.filter { isRecentPair($0) }.map(\.id))
+        } else {
+            // Re-check pairs that were checked before (by front filename)
+            let prevFronts = prevChecked.compactMap { id in pairs.first { $0.id == id }?.front.lastPathComponent }
+            checkedIDs = Set(pairs.filter { prevFronts.contains($0.front.lastPathComponent) }.map(\.id))
+        }
 
         if selectedPairID == nil || !pairs.contains(where: { $0.id == selectedPairID }) {
             selectedPairID = pairs.first?.id
@@ -186,7 +186,7 @@ final class EbayTitlesViewModel {
 
     private func saveCSV(_ rows: [EbayTitleResult]) {
         var csv = "\"front\",\"title\"\n"
-        for row in rows {
+        for row in rows.reversed() {
             let escapedFront = row.frontName.replacingOccurrences(of: "\"", with: "\"\"")
             let escapedTitle = row.title.replacingOccurrences(of: "\"", with: "\"\"")
             csv += "\"\(escapedFront)\",\"\(escapedTitle)\"\n"
@@ -205,7 +205,7 @@ final class EbayTitlesViewModel {
         guard !rows.isEmpty else { return [] }
 
         let dataRows = rows.first == ["front", "title"] ? Array(rows.dropFirst()) : rows
-        return dataRows.compactMap { columns in
+        return dataRows.reversed().compactMap { columns in
             guard columns.count >= 2 else { return nil }
             return EbayTitleResult(frontName: columns[0], title: columns[1])
         }
@@ -284,6 +284,14 @@ final class EbayTitlesViewModel {
                 self?.refreshImages(silent: true)
             }
         }
+    }
+
+    private func isRecentPair(_ pair: CardPair, maxAgeSeconds: TimeInterval = 3600) -> Bool {
+        let mtime = { (url: URL) -> Date in
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        }
+        let latest = max(mtime(pair.front), mtime(pair.back))
+        return latest.timeIntervalSinceNow >= -maxAgeSeconds
     }
 
     private func buildPairs(from files: [URL]) -> [CardPair] {
