@@ -72,9 +72,8 @@ final class SettingsStore {
     }
 
     var existingCardsDirectory: URL {
-        let fallback = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Card Namer/Cards")
-        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
-        return fallback
+        let target = URL(fileURLWithPath: "/Volumes/Dutton 2TB/Cards/Mix")
+        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        return target
     }
 }
