@@ -138,21 +138,48 @@ A local HTML tool for searching cards. Open directly in a browser.
 
 ## GUI Apps
 
-All GUI apps are PyQt5 desktop apps with a `.app` wrapper for macOS.
+This repo contains both a newer SwiftUI macOS app and older PyQt5 desktop apps.
+
+### `CardNamer Swift App/`
+Native macOS SwiftUI app that combines two workflows:
+
+- `Card Namer`: batch-renames card image pairs using OCR + OpenAI
+- `eBay Titles`: generates optimized eBay titles for checked card pairs
+
+Directory sources:
+- `Incoming (⌘1)` -> `/Users/geoff/incoming cards`
+- `Desktop/Cards (⌘2)` -> `/Volumes/Dutton 2TB/Cards/Mix`
+- `Current Sales (⌘3)` -> current `~/Sales/YYYY/MM` or `$SALES_ROOT/YYYY/MM`, matching `sale.py`
+
+Current behavior:
+- active image source is shown above the left card list
+- eBay title results open in a separate window when generation finishes
+- if `description.csv` exists in the active source folder, `Display Titles` reopens that results window from disk
+
+Build for local use:
+1. Open `CardNamer Swift App/CardNamer.xcodeproj`
+2. Select the `CardNamer` scheme and `My Mac`
+3. Use `Product > Build`
+4. Use `Product > Show Build Folder in Finder`
+5. Copy the built `CardNamer.app` somewhere stable such as `/Applications`
+
+For local-only use on your own Mac, you do not need `Distribute App`. The archive/distribution flow requires signing team setup and is only needed for broader distribution.
+
+Credentials: `OPENAI_API_KEY` via the app Settings UI
 
 ### `Card Namer App/card_namer.py`
-Batch-renames card image files using OCR (pytesseract) + OpenAI Vision.
+Older PyQt5 app for batch-renaming card image files using OCR (pytesseract) + OpenAI Vision.
 
 Credentials: `OPENAI_API_KEY` env var or `.openai-api-key.txt`
 
 ### `Ebay_Titles/ebay_title_gui.py`
-Generates optimized eBay listing titles for cards.
+Older PyQt5 app for generating optimized eBay listing titles for cards.
 
 ### `Letter Track App/lettertrack.py`
-Tracks physical mail with TinyURL-shortened tracking links.
+PyQt5 app that tracks physical mail with TinyURL-shortened tracking links.
 
 ### `Envelope Print App/envelope-print.py`
-Prints envelopes with address formatting.
+PyQt5 app that prints envelopes with address formatting.
 
 ---
 

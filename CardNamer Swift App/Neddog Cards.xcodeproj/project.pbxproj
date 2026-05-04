@@ -34,7 +34,7 @@
 		F010 /* EbayInstructions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayInstructions.swift; sourceTree = "<group>"; };
 		F011 /* EbayTitlesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayTitlesViewModel.swift; sourceTree = "<group>"; };
 		F012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		FAPP /* CardNamer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CardNamer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAPP /* Neddog Cards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Neddog Cards.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,7 +51,7 @@
 		GRP_PROD /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				FAPP /* CardNamer.app */,
+				FAPP /* Neddog Cards.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,9 +86,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		TGT /* CardNamer */ = {
+		TGT /* Neddog Cards */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CFGLIST_TGT /* Build configuration list for PBXNativeTarget "CardNamer" */;
+			buildConfigurationList = CFGLIST_TGT /* Build configuration list for PBXNativeTarget "Neddog Cards" */;
 			buildPhases = (
 				PH_SRC /* Sources */,
 				PH_FW /* Frameworks */,
@@ -98,9 +98,9 @@
 			);
 			dependencies = (
 			);
-			name = CardNamer;
+			name = "Neddog Cards";
 			productName = CardNamer;
-			productReference = FAPP /* CardNamer.app */;
+			productReference = FAPP /* Neddog Cards.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -131,7 +131,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				TGT /* CardNamer */,
+				TGT /* Neddog Cards */,
 			);
 		};
 /* End PBXProject section */
@@ -324,7 +324,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CFGLIST_TGT /* Build configuration list for PBXNativeTarget "CardNamer" */ = {
+		CFGLIST_TGT /* Build configuration list for PBXNativeTarget "Neddog Cards" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CFG_TGT_DEBUG /* Debug */,
