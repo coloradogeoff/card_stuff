@@ -7,8 +7,10 @@ enum AppMode: String, CaseIterable {
 }
 
 struct ContentView: View {
-    @State private var cardVM = CardNamerViewModel()
-    @State private var ebayVM = EbayTitlesViewModel()
+    @Environment(\.openWindow) private var openWindow
+
+    let cardVM: CardNamerViewModel
+    let ebayVM: EbayTitlesViewModel
     @State private var showSettings = false
     @State private var appMode: AppMode = .cardNamer
 
@@ -27,6 +29,9 @@ struct ContentView: View {
                 Button { showSettings = true } label: { Image(systemName: "gear") }
                     .help("API Key & Model Settings")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showEbayResultsWindow)) { _ in
+            openWindow(id: SceneID.ebayResults)
         }
     }
 
@@ -119,6 +124,7 @@ struct CardNamerSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            sourceHeader
             List(vm.pairs, selection: $vm.selectedPairID) { pair in
                 Label {
                     Text(pair.displayName)
@@ -165,6 +171,29 @@ struct CardNamerSidebar: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+    }
+
+    private var sourceHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Source")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(URL(fileURLWithPath: vm.directoryPath).lastPathComponent)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(vm.directoryPath)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
@@ -307,6 +336,7 @@ struct EbayTitlesSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            sourceHeader
             List(vm.pairs, selection: $vm.selectedPairID) { pair in
                 HStack(spacing: 6) {
                     Image(systemName: vm.checkedIDs.contains(pair.id) ? "checkmark.square.fill" : "square")
@@ -334,6 +364,29 @@ struct EbayTitlesSidebar: View {
             .padding(.vertical, 8)
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+    }
+
+    private var sourceHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Source")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(URL(fileURLWithPath: vm.directoryPath).lastPathComponent)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(vm.directoryPath)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
@@ -399,19 +452,26 @@ struct EbayTitlesDetail: View {
                 ProgressView(value: vm.progress).tint(.orange)
             }
 
-            Button {
-                vm.generateTitles()
-            } label: {
-                Label(vm.isBusy ? "Generating…" : "Generate Titles", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .controlSize(.large)
-            .disabled(vm.checkedIDs.isEmpty || vm.isBusy)
+            HStack(spacing: 8) {
+                Button {
+                    vm.generateTitles()
+                } label: {
+                    Label(vm.isBusy ? "Generating…" : "Generate Titles", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .controlSize(.large)
+                .disabled(vm.checkedIDs.isEmpty || vm.isBusy)
 
-            if !vm.results.isEmpty {
-                resultsList
+                if vm.hasSavedTitles {
+                    Button("Display Titles") {
+                        vm.displaySavedTitles()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .disabled(vm.isBusy)
+                }
             }
 
             ScrollViewReader { proxy in
@@ -435,53 +495,70 @@ struct EbayTitlesDetail: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .overlay(alignment: .top) { Divider() }
     }
+}
 
-    private var resultsList: some View {
-        VStack(alignment: .leading, spacing: 0) {
+struct EbayTitlesResultsWindow: View {
+    @Bindable var vm: EbayTitlesViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Generated Titles").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Generated Titles")
+                        .font(.title3.bold())
+                    Text("\(vm.results.count) result(s)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Copy All") {
                     let text = vm.results.map(\.title).joined(separator: "\n")
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
-                .controlSize(.small)
+                .disabled(vm.results.isEmpty)
             }
-            .padding(.bottom, 4)
 
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(vm.results) { result in
-                        HStack(alignment: .top, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(result.frontName)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                Text(result.title)
-                                    .font(.system(size: 12))
-                                    .lineLimit(2)
-                                    .textSelection(.enabled)
+            if vm.results.isEmpty {
+                ContentUnavailableView(
+                    "No Results Yet",
+                    systemImage: "text.page",
+                    description: Text("Run Generate Titles to open results here.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(vm.results) { result in
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(result.frontName)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                    Text(result.title)
+                                        .font(.system(size: 13))
+                                        .textSelection(.enabled)
+                                }
+                                Spacer()
+                                Button {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(result.title, forType: .string)
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Copy title")
                             }
-                            Spacer()
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(result.title, forType: .string)
-                            } label: {
-                                Image(systemName: "doc.on.doc")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Copy title")
+                            .padding(10)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .padding(8)
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                 }
             }
-            .frame(maxHeight: 140)
         }
+        .padding(16)
     }
 }
 

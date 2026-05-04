@@ -16,6 +16,9 @@
 		B007 /* OpenAIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F007 /* OpenAIService.swift */; };
 		B008 /* DirectoryWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F008 /* DirectoryWatcher.swift */; };
 		B009 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F009 /* SettingsStore.swift */; };
+		B010 /* EbayInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F010 /* EbayInstructions.swift */; };
+		B011 /* EbayTitlesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F011 /* EbayTitlesViewModel.swift */; };
+		B012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F012 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,9 @@
 		F007 /* OpenAIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIService.swift; sourceTree = "<group>"; };
 		F008 /* DirectoryWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryWatcher.swift; sourceTree = "<group>"; };
 		F009 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		F010 /* EbayInstructions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayInstructions.swift; sourceTree = "<group>"; };
+		F011 /* EbayTitlesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayTitlesViewModel.swift; sourceTree = "<group>"; };
+		F012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FAPP /* CardNamer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CardNamer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -35,13 +41,22 @@
 		PH_FW /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = ();
+			files = (
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		GRP_ROOT /* CardNamer */ = {
+		GRP_PROD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FAPP /* CardNamer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		GRP_ROOT = {
 			isa = PBXGroup;
 			children = (
 				GRP_SRC /* CardNamer */,
@@ -61,16 +76,11 @@
 				F007 /* OpenAIService.swift */,
 				F008 /* DirectoryWatcher.swift */,
 				F009 /* SettingsStore.swift */,
+				F010 /* EbayInstructions.swift */,
+				F011 /* EbayTitlesViewModel.swift */,
+				F012 /* Assets.xcassets */,
 			);
 			path = CardNamer;
-			sourceTree = "<group>";
-		};
-		GRP_PROD /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				FAPP /* CardNamer.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -78,14 +88,16 @@
 /* Begin PBXNativeTarget section */
 		TGT /* CardNamer */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CFGLIST_TGT;
+			buildConfigurationList = CFGLIST_TGT /* Build configuration list for PBXNativeTarget "CardNamer" */;
 			buildPhases = (
 				PH_SRC /* Sources */,
 				PH_FW /* Frameworks */,
 				PH_RES /* Resources */,
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = CardNamer;
 			productName = CardNamer;
 			productReference = FAPP /* CardNamer.app */;
@@ -106,16 +118,21 @@
 					};
 				};
 			};
-			buildConfigurationList = CFGLIST_PROJ;
+			buildConfigurationList = CFGLIST_PROJ /* Build configuration list for PBXProject "Neddog Cards" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (en, Base);
+			knownRegions = (
+				en,
+				Base,
+			);
 			mainGroup = GRP_ROOT;
-			productRefGroup = GRP_PROD;
+			productRefGroup = GRP_PROD /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (TGT);
+			targets = (
+				TGT /* CardNamer */,
+			);
 		};
 /* End PBXProject section */
 
@@ -123,7 +140,9 @@
 		PH_RES /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = ();
+			files = (
+				B012 /* Assets.xcassets in Resources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -142,6 +161,8 @@
 				B007 /* OpenAIService.swift in Sources */,
 				B008 /* DirectoryWatcher.swift in Sources */,
 				B009 /* SettingsStore.swift in Sources */,
+				B010 /* EbayInstructions.swift in Sources */,
+				B011 /* EbayTitlesViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -188,7 +209,10 @@
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)");
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
@@ -236,15 +260,19 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = CardNamer/CardNamer.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = RJTT97M3W4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.neddog.CardNamer;
@@ -261,15 +289,19 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = CardNamer/CardNamer.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = RJTT97M3W4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.neddog.CardNamer;
@@ -283,20 +315,25 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		CFGLIST_PROJ /* Build configuration list for PBXProject "CardNamer" */ = {
+		CFGLIST_PROJ /* Build configuration list for PBXProject "Neddog Cards" */ = {
 			isa = XCConfigurationList;
-			buildConfigurations = (CFG_PROJ_DEBUG, CFG_PROJ_RELEASE);
+			buildConfigurations = (
+				CFG_PROJ_DEBUG /* Debug */,
+				CFG_PROJ_RELEASE /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		CFGLIST_TGT /* Build configuration list for PBXNativeTarget "CardNamer" */ = {
 			isa = XCConfigurationList;
-			buildConfigurations = (CFG_TGT_DEBUG, CFG_TGT_RELEASE);
+			buildConfigurations = (
+				CFG_TGT_DEBUG /* Debug */,
+				CFG_TGT_RELEASE /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = PROJ /* Project object */;
 }

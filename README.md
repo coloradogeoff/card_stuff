@@ -56,6 +56,20 @@ Credentials: Gmail OAuth via `~/.gmail-mcp/gcp-oauth.keys.json`, token cached at
 
 ---
 
+### `ebay_api_demo.py`
+Minimal starter for the eBay Developer API. Fetches an app token and searches public listings through the Browse API.
+
+```bash
+python ebay_api_demo.py token
+python ebay_api_demo.py search "Nikola Jokic Select"
+python ebay_api_demo.py search "Caitlin Clark Prizm" --limit 10
+python ebay_api_demo.py search "Michael Jordan Fleer" --sandbox
+```
+
+Credentials: `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` in env vars or `.env`
+
+---
+
 ### `collectors_update.py`
 Bulk-updates My Cost, Source, My Notes, and Date Acquired on app.collectors.com for cards in a CSV matched by PSA cert number.
 

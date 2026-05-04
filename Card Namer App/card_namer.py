@@ -1390,7 +1390,7 @@ def main(
         False, help="Rename using the existing card_names.csv and remove it when done"
     ),
     back_suffix: str = typer.Option("_b", help="Suffix for back images"),
-    model: str = typer.Option("gpt-5.2", help="OpenAI model"),
+    model: str = typer.Option("gpt-5.4", help="OpenAI model"),
     max_size: int = typer.Option(1024, help="Max image width before upload"),
     quality: int = typer.Option(85, help="JPEG quality for uploads"),
     workers: int = typer.Option(4, help="Number of worker threads"),

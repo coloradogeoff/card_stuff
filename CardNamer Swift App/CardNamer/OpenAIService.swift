@@ -59,6 +59,79 @@ enum OpenAIService {
         return ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
     }
 
+    // MARK: - eBay title generation
+
+    static func generateTitle(
+        frontURL: URL,
+        backURL: URL,
+        category: EbayCategory,
+        setOverride: String?,
+        varietyOverride: String?
+    ) async throws -> String {
+        guard let key = loadAPIKey() else { throw OpenAIError.noAPIKey }
+
+        let ocrFront = await OCRService.recognize(imageURL: frontURL)
+        let frontB64 = try imageToBase64(url: frontURL)
+        let backB64  = try imageToBase64(url: backURL)
+
+        var system = category.systemPrompt
+        if !ocrFront.isEmpty { system += "\nText found on the front of the item: \(ocrFront)\n" }
+        if let s = setOverride, !s.isEmpty {
+            system += "Card set override — use exactly: \(s)\n"
+        }
+        if let v = varietyOverride, !v.isEmpty {
+            system += "Variety override — use exactly: \(v)\n"
+        }
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_completion_tokens": 500,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": [
+                    ["type": "text", "text": "This is the front of the item."],
+                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(frontB64)"]],
+                ]],
+                ["role": "user", "content": [
+                    ["type": "text", "text": "This is the back of the item."],
+                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(backB64)"]],
+                ]],
+            ],
+        ]
+
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else { throw OpenAIError.badResponse(code) }
+
+        guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = outer["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw OpenAIError.noContent
+        }
+
+        // Parse "Title: ..." from response
+        let titlePattern = try? NSRegularExpression(pattern: #"^\s*(?:\d+\.\s*)?\**\s*title\s*:\s*(.+)$"#, options: [.caseInsensitive])
+        for line in content.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let re = titlePattern,
+               let m = re.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               let r = Range(m.range(at: 1), in: trimmed) {
+                return String(trimmed[r]).replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+            }
+        }
+        // Fallback: first non-empty line
+        return content.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "*", with: "") }
+            .first(where: { !$0.isEmpty }) ?? content
+    }
+
     // MARK: - Main call
 
     static func identifyCard(

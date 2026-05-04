@@ -2,7 +2,11 @@
 .psa-token.txt
 .tinyurl-token.txt
 .openai-api-key.txt
+.env
+
 __*
 __pycache__/
 *.pyc
 *.app/
+.build/
+
