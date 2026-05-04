@@ -2,6 +2,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let goToDirectory = Notification.Name("goToDirectory")
+    static let showEbayResultsWindow = Notification.Name("showEbayResultsWindow")
 }
 
 private enum DirectoryShortcut: String, CaseIterable {
@@ -17,11 +18,18 @@ private enum AppWindowMetrics {
     static let defaultHeight: CGFloat = 900
 }
 
+enum SceneID {
+    static let ebayResults = "ebayResults"
+}
+
 @main
 struct CardNamerApp: App {
+    @State private var cardVM = CardNamerViewModel()
+    @State private var ebayVM = EbayTitlesViewModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(cardVM: cardVM, ebayVM: ebayVM)
                 .frame(
                     minWidth: AppWindowMetrics.minWidth,
                     minHeight: AppWindowMetrics.minHeight
@@ -32,6 +40,10 @@ struct CardNamerApp: App {
             height: AppWindowMetrics.defaultHeight
         )
         .windowStyle(.titleBar)
+        WindowGroup("eBay Title Results", id: SceneID.ebayResults) {
+            EbayTitlesResultsWindow(vm: ebayVM)
+        }
+        .defaultSize(width: 840, height: 560)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Go") {
