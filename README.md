@@ -140,7 +140,7 @@ A local HTML tool for searching cards. Open directly in a browser.
 
 This repo contains both a newer SwiftUI macOS app and older PyQt5 desktop apps.
 
-### `CardNamer Swift App/`
+### `Neddog_Cards_App/`
 Native macOS SwiftUI app that combines two workflows:
 
 - `Card Namer`: batch-renames card image pairs using OCR + OpenAI
@@ -157,7 +157,7 @@ Current behavior:
 - if `description.csv` exists in the active source folder, `Display Titles` reopens that results window from disk
 
 Build for local use:
-1. Open `CardNamer Swift App/CardNamer.xcodeproj`
+1. Open `Neddog_Cards_App/Neddog Cards.xcodeproj`
 2. Select the `CardNamer` scheme and `My Mac`
 3. Use `Product > Build`
 4. Use `Product > Show Build Folder in Finder`
