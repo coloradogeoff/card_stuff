@@ -511,6 +511,14 @@ struct EbayTitlesResultsWindow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Date to Clip") {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "yyyyMMdd"
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(formatter.string(from: Date()), forType: .string)
+                }
+                .help("Copy today's date as a YYYYMMDD SKU")
+
                 Button("Copy All") {
                     let text = vm.results.map(\.title).joined(separator: "\n")
                     NSPasteboard.general.clearContents()
@@ -549,6 +557,16 @@ struct EbayTitlesResultsWindow: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .help("Copy title")
+
+                                Button {
+                                    if let url = CardNameBuilder.ebayURL(fromBaseName: result.title) {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                } label: {
+                                    Image(systemName: "magnifyingglass")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Search eBay for this title")
                             }
                             .padding(10)
                             .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
