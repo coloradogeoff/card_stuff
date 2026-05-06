@@ -35,6 +35,11 @@ final class EbayTitlesViewModel {
     init() {
         startWatching()
         refreshImages()
+        NotificationCenter.default.addObserver(forName: .goToDirectory, object: nil, queue: .main) { [self] note in
+            if let dir = note.object as? QuickDirectory {
+                switchTo(dir)
+            }
+        }
     }
 
     // MARK: - Computed
@@ -160,7 +165,7 @@ final class EbayTitlesViewModel {
                         }
                     }
                 }
-                let sorted = indexed.sorted { $0.0 < $1.0 }.map(\.1)
+                let sorted = indexed.sorted { $0.0 > $1.0 }.map(\.1)
                 await MainActor.run {
                     results = sorted
                     isBusy = false
@@ -186,7 +191,7 @@ final class EbayTitlesViewModel {
 
     private func saveCSV(_ rows: [EbayTitleResult]) {
         var csv = "\"front\",\"title\"\n"
-        for row in rows.reversed() {
+        for row in rows {
             let escapedFront = row.frontName.replacingOccurrences(of: "\"", with: "\"\"")
             let escapedTitle = row.title.replacingOccurrences(of: "\"", with: "\"\"")
             csv += "\"\(escapedFront)\",\"\(escapedTitle)\"\n"
@@ -205,7 +210,7 @@ final class EbayTitlesViewModel {
         guard !rows.isEmpty else { return [] }
 
         let dataRows = rows.first == ["front", "title"] ? Array(rows.dropFirst()) : rows
-        return dataRows.reversed().compactMap { columns in
+        return dataRows.compactMap { columns in
             guard columns.count >= 2 else { return nil }
             return EbayTitleResult(frontName: columns[0], title: columns[1])
         }
