@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension Notification.Name {
@@ -24,6 +25,7 @@ enum SceneID {
 
 @main
 struct CardNamerApp: App {
+    @NSApplicationDelegateAdaptor(CardNamerAppDelegate.self) private var appDelegate
     @State private var cardVM = CardNamerViewModel()
     @State private var ebayVM = EbayTitlesViewModel()
 
@@ -85,5 +87,11 @@ struct CardNamerApp: App {
         }
         .keyboardShortcut(KeyEquivalent(Character(shortcut.rawValue)), modifiers: .command)
         .disabled(!directory.isAvailable)
+    }
+}
+
+final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 }
