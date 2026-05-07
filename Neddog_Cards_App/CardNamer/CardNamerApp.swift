@@ -4,6 +4,7 @@ import SwiftUI
 extension Notification.Name {
     static let goToDirectory = Notification.Name("goToDirectory")
     static let showEbayResultsWindow = Notification.Name("showEbayResultsWindow")
+    static let refreshImages = Notification.Name("refreshImages")
 }
 
 private enum DirectoryShortcut: String, CaseIterable {
@@ -73,6 +74,11 @@ struct CardNamerApp: App {
                     ),
                     shortcut: .currentSales
                 )
+                Divider()
+                Button("Refresh") {
+                    NotificationCenter.default.post(name: .refreshImages, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: .command)
             }
         }
     }

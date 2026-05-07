@@ -40,6 +40,9 @@ final class EbayTitlesViewModel {
                 switchTo(dir)
             }
         }
+        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [self] _ in
+            refreshImages()
+        }
     }
 
     // MARK: - Computed
@@ -133,46 +136,65 @@ final class EbayTitlesViewModel {
         let varOvr = varietyOverride.trimmingCharacters(in: .whitespaces)
         let total = Double(targets.count)
 
+        // Cap parallel OpenAI calls. 13+ in flight at once tended to stall on
+        // rate limits, URLSession connection limits, and Vision OCR contention.
+        let maxConcurrent = 4
+
+        let runOne: @Sendable (Int, CardPair) async -> (Int, EbayTitleResult) = { index, pair in
+            let frontName = pair.front.lastPathComponent
+            do {
+                let title = try await OpenAIService.generateTitle(
+                    frontURL: pair.front,
+                    backURL: pair.back,
+                    category: cat,
+                    setOverride: setOvr.isEmpty ? nil : setOvr,
+                    varietyOverride: varOvr.isEmpty ? nil : varOvr
+                )
+                return (index, EbayTitleResult(frontName: frontName, title: title))
+            } catch {
+                return (index, EbayTitleResult(frontName: frontName, title: "ERROR: \(error.localizedDescription)"))
+            }
+        }
+
         Task {
             var completed = 0
-            await withTaskGroup(of: (Int, EbayTitleResult?).self) { group in
-                for (index, pair) in targets.enumerated() {
-                    group.addTask {
-                        do {
-                            let title = try await OpenAIService.generateTitle(
-                                frontURL: pair.front,
-                                backURL: pair.back,
-                                category: cat,
-                                setOverride: setOvr.isEmpty ? nil : setOvr,
-                                varietyOverride: varOvr.isEmpty ? nil : varOvr
-                            )
-                            return (index, EbayTitleResult(frontName: pair.front.lastPathComponent, title: title))
-                        } catch {
-                            return (index, EbayTitleResult(frontName: pair.front.lastPathComponent, title: "ERROR: \(error.localizedDescription)"))
-                        }
-                    }
+            var indexed: [(Int, EbayTitleResult)] = []
+
+            await withTaskGroup(of: (Int, EbayTitleResult).self) { group in
+                var iterator = Array(targets.enumerated()).makeIterator()
+
+                // Prime up to maxConcurrent tasks
+                for _ in 0..<min(maxConcurrent, targets.count) {
+                    guard let (index, pair) = iterator.next() else { break }
+                    let frontName = pair.front.lastPathComponent
+                    await MainActor.run { log("→ \(frontName)") }
+                    group.addTask { await runOne(index, pair) }
                 }
 
-                var indexed: [(Int, EbayTitleResult)] = []
-                for await (index, result) in group {
-                    if let result {
-                        indexed.append((index, result))
-                        completed += 1
-                        let p = Double(completed) / total
-                        await MainActor.run {
-                            progress = p
-                            log("[\(completed)/\(Int(total))] \(result.frontName): \(result.title)")
-                        }
+                // Drain: as each completes, log it and launch the next one
+                while let (idx, r) = await group.next() {
+                    indexed.append((idx, r))
+                    completed += 1
+                    let p = Double(completed) / total
+                    await MainActor.run {
+                        progress = p
+                        log("[\(completed)/\(Int(total))] \(r.frontName): \(r.title)")
+                    }
+                    if let (index, pair) = iterator.next() {
+                        let frontName = pair.front.lastPathComponent
+                        await MainActor.run { log("→ \(frontName)") }
+                        group.addTask { await runOne(index, pair) }
                     }
                 }
-                let sorted = indexed.sorted { $0.0 > $1.0 }.map(\.1)
-                await MainActor.run {
-                    results = sorted
-                    isBusy = false
-                    progress = 1.0
-                    saveCSV(sorted)
-                    NotificationCenter.default.post(name: .showEbayResultsWindow, object: nil)
-                }
+            }
+
+            let sorted = indexed.sorted { $0.0 > $1.0 }.map(\.1)
+            await MainActor.run {
+                results = sorted
+                isBusy = false
+                progress = 1.0
+                saveCSV(sorted)
+                NotificationCenter.default.post(name: .showEbayResultsWindow, object: nil)
             }
         }
     }

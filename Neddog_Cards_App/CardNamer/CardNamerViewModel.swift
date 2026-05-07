@@ -33,6 +33,9 @@ final class CardNamerViewModel {
                 switchTo(dir)
             }
         }
+        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [self] _ in
+            refreshImages()
+        }
     }
 
     // MARK: - Computed
