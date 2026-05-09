@@ -117,6 +117,78 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Trait controls
+
+struct TraitFilterBar: View {
+    let selectedTraits: Set<CardTrait>
+    let onToggle: (CardTrait) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Trait filters")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 86), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(CardTrait.allCases) { trait in
+                    TraitChip(
+                        trait: trait,
+                        isOn: selectedTraits.contains(trait),
+                        isDisabled: false
+                    ) {
+                        onToggle(trait)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CardTraitEditor: View {
+    let title: String
+    let traits: CardTraits
+    let isDisabled: Bool
+    let onToggle: (CardTrait) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(CardTrait.allCases) { trait in
+                    TraitChip(
+                        trait: trait,
+                        isOn: traits.contains(trait),
+                        isDisabled: isDisabled
+                    ) {
+                        onToggle(trait)
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct TraitChip: View {
+    let trait: CardTrait
+    let isOn: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(trait.label, systemImage: isOn ? "checkmark.circle.fill" : trait.systemImage)
+                .font(.caption)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(isOn ? .accentColor : .secondary)
+        .disabled(isDisabled)
+    }
+}
+
 // MARK: - Card Namer Sidebar
 
 struct CardNamerSidebar: View {
@@ -125,28 +197,54 @@ struct CardNamerSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             sourceHeader
-            List(vm.pairs, selection: $vm.selectedPairID) { pair in
-                Label {
-                    Text(pair.displayName)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } icon: {
-                    Image(systemName: "photo.on.rectangle")
-                        .foregroundStyle(.secondary)
+            List(selection: $vm.selectedPairID) {
+                if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
+                    Section {
+                        if vm.parentDirectory != nil {
+                            Button {
+                                vm.navigateToParentDirectory()
+                            } label: {
+                                directoryRowLabel(name: "..", icon: "arrowshape.turn.up.left")
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        ForEach(vm.childDirectories, id: \.path) { directory in
+                            Button {
+                                vm.navigateToDirectory(directory)
+                            } label: {
+                                directoryRowLabel(name: directory.lastPathComponent, icon: "folder")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
-                .tag(pair.id)
-                .contextMenu {
-                    Button(role: .destructive) {
-                        vm.deleteCard(pair)
-                    } label: {
-                        Label("Delete Card", systemImage: "trash")
+
+                Section {
+                    ForEach(vm.visiblePairs) { pair in
+                        Label {
+                            Text(pair.displayName)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } icon: {
+                            Image(systemName: "photo.on.rectangle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .tag(pair.id)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                vm.deleteCard(pair)
+                            } label: {
+                                Label("Delete Card", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
             .listStyle(.sidebar)
 
-            if !vm.pairs.isEmpty && !vm.isExistingCardsDirectory {
+            if !vm.visiblePairs.isEmpty && !vm.isExistingCardsDirectory {
                 Divider()
                 HStack(spacing: 8) {
                     Button {
@@ -160,7 +258,7 @@ struct CardNamerSidebar: View {
                     Button {
                         vm.moveAllCards()
                     } label: {
-                        Label("Move All", systemImage: "arrow.right.square.fill")
+                        Label(vm.hasActiveFilter ? "Move Results" : "Move All", systemImage: "arrow.right.square.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(vm.isBusy)
@@ -171,6 +269,18 @@ struct CardNamerSidebar: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+    }
+
+    private func directoryRowLabel(name: String, icon: String) -> some View {
+        Label {
+            Text(name)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(.blue)
+        }
     }
 
     private var sourceHeader: some View {
@@ -187,6 +297,36 @@ struct CardNamerSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
+            HStack(spacing: 6) {
+                TextField("Filter filenames (case-sensitive)", text: $vm.filterText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                Button("Clear") {
+                    vm.clearFilters()
+                }
+                .disabled(!vm.hasActiveFilter)
+            }
+            .padding(.top, 6)
+            HStack(spacing: 8) {
+                Picker("Sort", selection: $vm.sortOrder) {
+                    ForEach(CardPairSortOrder.allCases) { order in
+                        Text(order.rawValue).tag(order)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                Text("\(vm.visiblePairs.count)/\(vm.pairs.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .controlSize(.small)
+            TraitFilterBar(
+                selectedTraits: vm.selectedTraitFilters,
+                onToggle: vm.toggleTraitFilter
+            )
+            .padding(.top, 4)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -201,7 +341,7 @@ struct CardNamerSidebar: View {
 
 struct CardNamerDetail: View {
     private enum Layout {
-        static let actionHeight: CGFloat = 230
+        static let actionHeight: CGFloat = 282
         static let minimumPreviewHeight: CGFloat = 240
         static let previewBadgeBottomPadding: CGFloat = 28
     }
@@ -259,6 +399,13 @@ struct CardNamerDetail: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
             }
+
+            CardTraitEditor(
+                title: "Traits",
+                traits: vm.selectedTraits,
+                isDisabled: vm.selectedPair == nil || vm.isBusy,
+                onToggle: vm.toggleTrait
+            )
 
             HStack(spacing: 8) {
                 Button {
@@ -333,21 +480,48 @@ struct CardNamerDetail: View {
 
 struct EbayTitlesSidebar: View {
     @Bindable var vm: EbayTitlesViewModel
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
             sourceHeader
-            List(vm.pairs, selection: $vm.selectedPairID) { pair in
-                HStack(spacing: 6) {
-                    Image(systemName: vm.checkedIDs.contains(pair.id) ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(vm.checkedIDs.contains(pair.id) ? Color.accentColor : .secondary)
-                        .onTapGesture { vm.toggleCheck(pair) }
-                    Text(pair.displayName)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+            List(selection: $vm.selectedPairID) {
+                if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
+                    Section {
+                        if vm.parentDirectory != nil {
+                            Button {
+                                vm.navigateToParentDirectory()
+                            } label: {
+                                directoryRowLabel(name: "..", icon: "arrowshape.turn.up.left")
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        ForEach(vm.childDirectories, id: \.path) { directory in
+                            Button {
+                                vm.navigateToDirectory(directory)
+                            } label: {
+                                directoryRowLabel(name: directory.lastPathComponent, icon: "folder")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
-                .tag(pair.id)
+
+                Section {
+                    ForEach(vm.visiblePairs) { pair in
+                        HStack(spacing: 6) {
+                            Image(systemName: vm.checkedIDs.contains(pair.id) ? "checkmark.square.fill" : "square")
+                                .foregroundStyle(vm.checkedIDs.contains(pair.id) ? Color.accentColor : .secondary)
+                                .onTapGesture { vm.toggleCheck(pair) }
+                            Text(pair.displayName)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        .tag(pair.id)
+                    }
+                }
             }
             .listStyle(.sidebar)
 
@@ -361,9 +535,44 @@ struct EbayTitlesSidebar: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Selected", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(vm.checkedIDs.isEmpty)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .confirmationDialog(
+                "Move \(vm.checkedIDs.count) \(vm.checkedIDs.count == 1 ? "pair" : "pairs") to the Trash?",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Move to Trash", role: .destructive) {
+                    vm.deleteSelectedPairs()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Both front and back files for each selected pair will be moved to the Trash.")
+            }
         }
         .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
+    }
+
+    private func directoryRowLabel(name: String, icon: String) -> some View {
+        Label {
+            Text(name)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(.blue)
+        }
     }
 
     private var sourceHeader: some View {
@@ -380,6 +589,36 @@ struct EbayTitlesSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
+            HStack(spacing: 6) {
+                TextField("Filter filenames (case-sensitive)", text: $vm.filterText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                Button("Clear") {
+                    vm.clearFilters()
+                }
+                .disabled(vm.filterText.isEmpty && vm.selectedTraitFilters.isEmpty)
+            }
+            .padding(.top, 6)
+            HStack(spacing: 8) {
+                Picker("Sort", selection: $vm.sortOrder) {
+                    ForEach(CardPairSortOrder.allCases) { order in
+                        Text(order.rawValue).tag(order)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                Text("\(vm.visiblePairs.count)/\(vm.pairs.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .controlSize(.small)
+            TraitFilterBar(
+                selectedTraits: vm.selectedTraitFilters,
+                onToggle: vm.toggleTraitFilter
+            )
+            .padding(.top, 4)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -447,6 +686,13 @@ struct EbayTitlesDetail: View {
                     }
                 }
             }
+
+            CardTraitEditor(
+                title: "Traits",
+                traits: vm.selectedTraits,
+                isDisabled: vm.selectedPair == nil || vm.isBusy,
+                onToggle: vm.toggleTrait
+            )
 
             if vm.isBusy {
                 ProgressView(value: vm.progress).tint(.orange)
@@ -584,12 +830,16 @@ struct EbayTitlesResultsWindow: View {
 
 struct CardPreviewView: View {
     let imageURL: URL?
+    @State private var loadedURL: URL?
+    @State private var loadedImage: NSImage?
+
+    private static let imageCache = NSCache<NSURL, NSImage>()
 
     var body: some View {
         GeometryReader { proxy in
             Group {
-                if let url = imageURL, let nsImage = NSImage(contentsOf: url) {
-                    Image(nsImage: nsImage)
+                if let loadedImage, loadedURL == imageURL {
+                    Image(nsImage: loadedImage)
                         .resizable()
                         .scaledToFit()
                         .frame(
@@ -597,6 +847,9 @@ struct CardPreviewView: View {
                             height: max(proxy.size.height - 24, 0)
                         )
                         .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                } else if imageURL != nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
@@ -609,6 +862,37 @@ struct CardPreviewView: View {
                 }
             }
         }
+        .task(id: imageURL) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        guard let imageURL else {
+            loadedURL = nil
+            loadedImage = nil
+            return
+        }
+
+        let cacheKey = imageURL as NSURL
+        if let cached = Self.imageCache.object(forKey: cacheKey) {
+            loadedURL = imageURL
+            loadedImage = cached
+            return
+        }
+
+        loadedURL = imageURL
+        loadedImage = nil
+
+        let image = await Task.detached(priority: .userInitiated) {
+            NSImage(contentsOf: imageURL)
+        }.value
+
+        guard !Task.isCancelled, loadedURL == imageURL else { return }
+        if let image {
+            Self.imageCache.setObject(image, forKey: cacheKey)
+        }
+        loadedImage = image
     }
 }
 
