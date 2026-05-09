@@ -7,9 +7,32 @@ final class CardNamerViewModel {
 
     // Directory state
     var directoryPath: String = SettingsStore.shared.incomingDirectory.path
+    var childDirectories: [URL] = []
     var pairs: [CardPair] = []
+    var visiblePairs: [CardPair] = []
+    var filterText: String = "" {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
+    var sortOrder: CardPairSortOrder = .descending {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
+    var selectedTraitFilters: Set<CardTrait> = [] {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
     var selectedPairID: CardPair.ID? {
-        didSet { proposedName = selectedPair?.baseName ?? "" }
+        didSet {
+            proposedName = selectedPair?.baseName ?? ""
+            updateSelectedTraits()
+        }
     }
 
     // Naming
@@ -21,9 +44,13 @@ final class CardNamerViewModel {
 
     // Preview
     var showingBack: Bool = false
+    var selectedTraits: CardTraits = CardTraits()
 
     private let watcher = DirectoryWatcher()
+    private let metadataStore = CardMetadataStore(directoryURL: SettingsStore.shared.incomingDirectory)
     private var debounceTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshGeneration = 0
 
     init() {
         startWatching()
@@ -44,8 +71,17 @@ final class CardNamerViewModel {
         URL(fileURLWithPath: directoryPath).standardized
     }
 
+    var parentDirectory: URL? {
+        let parent = currentDirectory.deletingLastPathComponent().standardized
+        return parent == currentDirectory ? nil : parent
+    }
+
     var selectedPair: CardPair? {
         pairs.first { $0.id == selectedPairID }
+    }
+
+    var hasActiveFilter: Bool {
+        !filterText.isEmpty || !selectedTraitFilters.isEmpty
     }
 
     var previewURL: URL? {
@@ -64,6 +100,19 @@ final class CardNamerViewModel {
         refreshImages()
     }
 
+    func navigateToParentDirectory() {
+        guard let parentDirectory else { return }
+        navigateToDirectory(parentDirectory)
+    }
+
+    func navigateToDirectory(_ directory: URL) {
+        directoryPath = directory.standardized.path
+        proposedName = ""
+        selectedPairID = nil
+        showingBack = false
+        refreshImages()
+    }
+
     func chooseDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -78,41 +127,73 @@ final class CardNamerViewModel {
 
 // MARK: - Image loading
 
+    private func filteredAndSortedPairs() -> [CardPair] {
+        let matchingPairs: [CardPair]
+        if filterText.isEmpty {
+            matchingPairs = pairs
+        } else {
+            matchingPairs = pairs.filter { $0.displayName.contains(filterText) }
+        }
+
+        let metadataMatchingPairs = matchingPairs.filter {
+            metadataStore.matches($0, selectedTraits: selectedTraitFilters)
+        }
+
+        return metadataMatchingPairs.sorted { lhs, rhs in
+            switch sortOrder {
+            case .ascending:
+                return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+            case .descending:
+                return CardDirectoryIndexStore.naturalSortLess(rhs.displayName, lhs.displayName)
+            }
+        }
+    }
+
     func refreshImages(silent: Bool = false) {
+        refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let dir = currentDirectory
         guard FileManager.default.fileExists(atPath: dir.path) else {
             if !silent { log("Directory does not exist: \(dir.path)") }
+            childDirectories = []
             pairs = []
+            visiblePairs = []
             return
         }
-
-        let imageExts: Set<String> = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]))?.filter {
-            imageExts.contains($0.pathExtension.lowercased())
-        }.sorted {
-            naturalSortLess($0.lastPathComponent, $1.lastPathComponent)
-        } ?? []
-
-        let newPairs = buildPairs(from: files)
-
-        let prevID = selectedPairID
-        pairs = newPairs
-
-        // Try to keep selection on same pair (by file names)
-        if let prev = prevID, pairs.contains(where: { $0.id == prev }) {
-            // still exists — keep selection
-        } else if !pairs.isEmpty {
-            selectedPairID = pairs[0].id
-            showingBack = false
-        }
-
+        metadataStore.load(directoryURL: dir)
         startWatching()
 
-        if !silent {
-            if files.isEmpty {
-                log("No image files found.")
-            } else {
-                log("Loaded \(newPairs.count) card pair(s) from \(dir.lastPathComponent).")
+        if let cachedIndex = CardDirectoryIndexStore.cachedIndex(for: dir) {
+            applyDirectoryIndex(cachedIndex, pruneMetadata: false)
+            if !silent {
+                log("Loaded \(cachedIndex.pairs.count) cached card pair(s); verifying folder...")
+            }
+        } else if !silent {
+            log("Scanning \(dir.lastPathComponent)...")
+        }
+
+        refreshTask = Task {
+            let index = await Task.detached(priority: .userInitiated) {
+                let scannedIndex = CardDirectoryIndexStore.scanDirectory(dir)
+                CardDirectoryIndexStore.saveCacheIfNeeded(for: scannedIndex)
+                return scannedIndex
+            }.value
+
+            await MainActor.run {
+                guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
+                let previousPairIDs = self.pairs.map(\.id)
+                self.applyDirectoryIndex(index, pruneMetadata: true)
+
+                if !silent {
+                    if index.imageFileCount == 0 {
+                        self.log("No image files found.")
+                    } else {
+                        self.log("Loaded \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
+                    }
+                } else if previousPairIDs != index.pairs.map(\.id) {
+                    self.log("Updated \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
+                }
             }
         }
     }
@@ -147,7 +228,7 @@ final class CardNamerViewModel {
         async let ocrBack = OCRService.recognize(imageURL: pair.back)
         async let ocrBackBottom = OCRService.recognize(imageURL: pair.back, cropBottom: true)
 
-        let (front, back, bottom) = try await (ocrFront, ocrBack, ocrBackBottom)
+        let (front, back, bottom) = await (ocrFront, ocrBack, ocrBackBottom)
         var details = try await OpenAIService.identifyCard(
             frontURL: pair.front,
             backURL: pair.back,
@@ -180,6 +261,7 @@ final class CardNamerViewModel {
             if pair.back.standardized != newBack.standardized {
                 try FileManager.default.moveItem(at: pair.back, to: newBack)
             }
+            metadataStore.moveMetadata(from: pair.baseName, to: sanitized)
             log("Renamed to \(newFront.lastPathComponent) and \(newBack.lastPathComponent)")
             proposedName = ""
             refreshImages()
@@ -194,6 +276,7 @@ final class CardNamerViewModel {
         do {
             try FileManager.default.trashItem(at: pair.front, resultingItemURL: nil)
             try FileManager.default.trashItem(at: pair.back, resultingItemURL: nil)
+            metadataStore.removeMetadata(for: pair)
             log("Moved to Trash: \(pair.front.lastPathComponent) + \(pair.back.lastPathComponent)")
         } catch {
             log("Delete failed: \(error.localizedDescription)")
@@ -209,7 +292,7 @@ final class CardNamerViewModel {
     }
 
     func moveAllCards() {
-        movePairs(pairs)
+        movePairs(visiblePairs)
     }
 
     private func movePairs(_ targets: [CardPair]) {
@@ -218,6 +301,7 @@ final class CardNamerViewModel {
         var moved = 0
         var skipped = 0
         for pair in targets {
+            var movedFilesForPair = 0
             for source in [pair.front, pair.back] {
                 let target = dest.appendingPathComponent(source.lastPathComponent)
                 if source.standardized == target.standardized { skipped += 1; continue }
@@ -227,10 +311,14 @@ final class CardNamerViewModel {
                     }
                     try FileManager.default.moveItem(at: source, to: target)
                     moved += 1
+                    movedFilesForPair += 1
                 } catch {
                     log("Move failed for \(source.lastPathComponent): \(error.localizedDescription)")
                     skipped += 1
                 }
+            }
+            if movedFilesForPair == 2 {
+                metadataStore.moveMetadata(for: pair, to: dest)
             }
         }
         log("Move complete: \(moved) moved, \(skipped) skipped → \(dest.lastPathComponent)")
@@ -260,6 +348,28 @@ final class CardNamerViewModel {
         showingBack.toggle()
     }
 
+    func toggleTrait(_ trait: CardTrait) {
+        guard let selectedPair else { return }
+        let newValue = !metadataStore.traits(for: selectedPair).contains(trait)
+        metadataStore.set(trait, to: newValue, for: selectedPair)
+        updateSelectedTraits()
+        updateVisiblePairs()
+        syncSelectionWithVisiblePairs()
+    }
+
+    func toggleTraitFilter(_ trait: CardTrait) {
+        if selectedTraitFilters.contains(trait) {
+            selectedTraitFilters.remove(trait)
+        } else {
+            selectedTraitFilters.insert(trait)
+        }
+    }
+
+    func clearFilters() {
+        filterText = ""
+        selectedTraitFilters = []
+    }
+
     func log(_ message: String) {
         let line = "[\(timeString())] \(message)"
         if logText.isEmpty {
@@ -280,6 +390,45 @@ final class CardNamerViewModel {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    private func syncSelectionWithVisiblePairs() {
+        if let selectedPairID, visiblePairs.contains(where: { $0.id == selectedPairID }) {
+            return
+        }
+
+        selectedPairID = visiblePairs.first?.id
+        showingBack = false
+    }
+
+    private func updateVisiblePairs() {
+        visiblePairs = filteredAndSortedPairs()
+    }
+
+    private func updateSelectedTraits() {
+        guard let selectedPair else {
+            selectedTraits = CardTraits()
+            return
+        }
+        selectedTraits = metadataStore.traits(for: selectedPair)
+    }
+
+    private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool) {
+        let prevID = selectedPairID
+        childDirectories = index.childDirectories
+        pairs = index.pairs
+        if pruneMetadata {
+            metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
+        }
+        updateVisiblePairs()
+
+        if let prevID, pairs.contains(where: { $0.id == prevID }) {
+            selectedPairID = prevID
+        } else {
+            selectedPairID = nil
+        }
+
+        syncSelectionWithVisiblePairs()
+    }
+
     private func startWatching() {
         watcher.watch(url: currentDirectory)
         watcher.onChange = { [weak self] in
@@ -292,60 +441,4 @@ final class CardNamerViewModel {
         }
     }
 
-    // MARK: - Pair building
-
-    private func buildPairs(from files: [URL]) -> [CardPair] {
-        let isBack = { (url: URL) -> Bool in url.deletingPathExtension().lastPathComponent.lowercased().hasSuffix("_b") }
-
-        var fronts: [String: [URL]] = [:]
-        for f in files where !isBack(f) {
-            let stem = f.deletingPathExtension().lastPathComponent.lowercased()
-            fronts[stem, default: []].append(f)
-        }
-        let backs = files.filter(isBack)
-
-        var used = Set<URL>()
-        var pairs: [CardPair] = []
-
-        for back in backs {
-            let backStem = back.deletingPathExtension().lastPathComponent.lowercased()
-            let frontStem = String(backStem.dropLast(2))
-            if let candidates = fronts[frontStem], let front = candidates.first(where: { !used.contains($0) }) {
-                pairs.append(CardPair(front: front, back: back))
-                used.insert(front); used.insert(back)
-            }
-        }
-
-        let remaining = files.filter { !used.contains($0) }
-        for i in stride(from: 0, to: remaining.count - 1, by: 2) {
-            var first = remaining[i], second = remaining[i + 1]
-            if isBack(first) && !isBack(second) { swap(&first, &second) }
-            pairs.append(CardPair(front: first, back: second))
-        }
-
-        return pairs.sorted {
-            let m0 = (try? $0.front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
-            let m1 = (try? $1.front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
-            return m0 > m1
-        }
-    }
-
-    private func naturalSortLess(_ a: String, _ b: String) -> Bool {
-        let re = try? NSRegularExpression(pattern: #"(\d+)|(\D+)"#)
-        func tokens(_ s: String) -> [(Int?, String)] {
-            let range = NSRange(s.startIndex..., in: s)
-            return (re?.matches(in: s, range: range) ?? []).compactMap { m -> (Int?, String)? in
-                guard let r = Range(m.range, in: s) else { return nil }
-                let t = String(s[r])
-                return (Int(t), t)
-            }
-        }
-        let ta = tokens(a), tb = tokens(b)
-        for i in 0..<min(ta.count, tb.count) {
-            let (ai, as_) = ta[i]; let (bi, bs) = tb[i]
-            if let ai, let bi { if ai != bi { return ai < bi } }
-            else if as_ != bs { return as_ < bs }
-        }
-        return ta.count < tb.count
-    }
 }

@@ -12,7 +12,27 @@ struct EbayTitleResult: Identifiable {
 final class EbayTitlesViewModel {
 
     var directoryPath: String = SettingsStore.shared.incomingDirectory.path
+    var childDirectories: [URL] = []
     var pairs: [CardPair] = []
+    var visiblePairs: [CardPair] = []
+    var filterText: String = "" {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
+    var sortOrder: CardPairSortOrder = .descending {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
+    var selectedTraitFilters: Set<CardTrait> = [] {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
     var checkedIDs: Set<CardPair.ID> = []
 
     var category: EbayCategory = .sportsCards
@@ -26,11 +46,18 @@ final class EbayTitlesViewModel {
 
     var showingBack: Bool = false
     var selectedPairID: CardPair.ID? {
-        didSet { showingBack = false }
+        didSet {
+            showingBack = false
+            updateSelectedTraits()
+        }
     }
+    var selectedTraits: CardTraits = CardTraits()
 
     private let watcher = DirectoryWatcher()
+    private let metadataStore = CardMetadataStore(directoryURL: SettingsStore.shared.incomingDirectory)
     private var debounceTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshGeneration = 0
 
     init() {
         startWatching()
@@ -48,6 +75,10 @@ final class EbayTitlesViewModel {
     // MARK: - Computed
 
     var currentDirectory: URL { URL(fileURLWithPath: directoryPath).standardized }
+    var parentDirectory: URL? {
+        let parent = currentDirectory.deletingLastPathComponent().standardized
+        return parent == currentDirectory ? nil : parent
+    }
     var selectedPair: CardPair? { pairs.first { $0.id == selectedPairID } }
     var previewURL: URL? {
         guard let pair = selectedPair else { return nil }
@@ -64,6 +95,19 @@ final class EbayTitlesViewModel {
         refreshImages()
     }
 
+    func navigateToParentDirectory() {
+        guard let parentDirectory else { return }
+        navigateToDirectory(parentDirectory)
+    }
+
+    func navigateToDirectory(_ directory: URL) {
+        directoryPath = directory.standardized.path
+        checkedIDs = []
+        selectedPairID = nil
+        showingBack = false
+        refreshImages()
+    }
+
     func chooseDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -75,36 +119,46 @@ final class EbayTitlesViewModel {
     }
 
     func refreshImages(silent: Bool = false) {
+        refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let dir = currentDirectory
         guard FileManager.default.fileExists(atPath: dir.path) else {
             if !silent { log("Directory does not exist: \(dir.path)") }
+            childDirectories = []
+            visiblePairs = []
             pairs = []; return
         }
-
-        let imageExts: Set<String> = ["jpg","jpeg","png","bmp","tif","tiff","webp"]
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]))?
-            .filter { imageExts.contains($0.pathExtension.lowercased()) }
-            .sorted { naturalSortLess($0.lastPathComponent, $1.lastPathComponent) } ?? []
-
-        let newPairs = buildPairs(from: files)
-        let prevChecked = checkedIDs
-        pairs = newPairs
-
-        if prevChecked.isEmpty {
-            // First load: check pairs modified within the last hour
-            checkedIDs = Set(pairs.filter { isRecentPair($0) }.map(\.id))
-        } else {
-            // Re-check pairs that were checked before (by front filename)
-            let prevFronts = prevChecked.compactMap { id in pairs.first { $0.id == id }?.front.lastPathComponent }
-            checkedIDs = Set(pairs.filter { prevFronts.contains($0.front.lastPathComponent) }.map(\.id))
-        }
-
-        if selectedPairID == nil || !pairs.contains(where: { $0.id == selectedPairID }) {
-            selectedPairID = pairs.first?.id
-        }
-
+        metadataStore.load(directoryURL: dir)
         startWatching()
-        if !silent { log("Loaded \(newPairs.count) pair(s) from \(dir.lastPathComponent).") }
+
+        if let cachedIndex = CardDirectoryIndexStore.cachedIndex(for: dir) {
+            applyDirectoryIndex(cachedIndex, pruneMetadata: false, updateRecentChecks: false)
+            if !silent {
+                log("Loaded \(cachedIndex.pairs.count) cached pair(s); verifying folder...")
+            }
+        } else if !silent {
+            log("Scanning \(dir.lastPathComponent)...")
+        }
+
+        refreshTask = Task {
+            let index = await Task.detached(priority: .userInitiated) {
+                let scannedIndex = CardDirectoryIndexStore.scanDirectory(dir)
+                CardDirectoryIndexStore.saveCacheIfNeeded(for: scannedIndex)
+                return scannedIndex
+            }.value
+
+            await MainActor.run {
+                guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
+                let previousPairIDs = self.pairs.map(\.id)
+                self.applyDirectoryIndex(index, pruneMetadata: true, updateRecentChecks: true)
+                if !silent {
+                    self.log("Loaded \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
+                } else if previousPairIDs != index.pairs.map(\.id) {
+                    self.log("Updated \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
+                }
+            }
+        }
     }
 
     func togglePreviewSide() {
@@ -114,11 +168,126 @@ final class EbayTitlesViewModel {
 
     // MARK: - Selection
 
-    func selectAll() { checkedIDs = Set(pairs.map(\.id)) }
+    func selectAll() { checkedIDs = Set(visiblePairs.map(\.id)) }
     func selectNone() { checkedIDs = [] }
+
+    func deleteSelectedPairs() {
+        let toDelete = checkedPairs
+        guard !toDelete.isEmpty else { return }
+        var moved = 0
+        var failed: [(String, String)] = []
+        for pair in toDelete {
+            for url in [pair.front, pair.back] {
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    moved += 1
+                } catch {
+                    failed.append((url.lastPathComponent, error.localizedDescription))
+                }
+            }
+            metadataStore.removeMetadata(for: pair)
+        }
+        let pairWord = toDelete.count == 1 ? "pair" : "pairs"
+        log("Moved \(moved) file(s) to Trash from \(toDelete.count) \(pairWord)" + (failed.isEmpty ? "" : "; \(failed.count) failed"))
+        for (name, err) in failed { log("  ✗ \(name): \(err)") }
+        checkedIDs = []
+        selectedPairID = nil
+        refreshImages()
+    }
     func toggleCheck(_ pair: CardPair) {
         if checkedIDs.contains(pair.id) { checkedIDs.remove(pair.id) }
         else { checkedIDs.insert(pair.id) }
+    }
+
+    func toggleTrait(_ trait: CardTrait) {
+        guard let selectedPair else { return }
+        let newValue = !metadataStore.traits(for: selectedPair).contains(trait)
+        metadataStore.set(trait, to: newValue, for: selectedPair)
+        updateSelectedTraits()
+        updateVisiblePairs()
+        syncSelectionWithVisiblePairs()
+    }
+
+    func toggleTraitFilter(_ trait: CardTrait) {
+        if selectedTraitFilters.contains(trait) {
+            selectedTraitFilters.remove(trait)
+        } else {
+            selectedTraitFilters.insert(trait)
+        }
+    }
+
+    func clearFilters() {
+        filterText = ""
+        selectedTraitFilters = []
+    }
+
+    private func syncSelectionWithVisiblePairs() {
+        if let selectedPairID, visiblePairs.contains(where: { $0.id == selectedPairID }) {
+            return
+        }
+
+        selectedPairID = visiblePairs.first?.id
+        showingBack = false
+    }
+
+    private func updateVisiblePairs() {
+        visiblePairs = filteredAndSortedPairs()
+    }
+
+    private func updateSelectedTraits() {
+        guard let selectedPair else {
+            selectedTraits = CardTraits()
+            return
+        }
+        selectedTraits = metadataStore.traits(for: selectedPair)
+    }
+
+    private func filteredAndSortedPairs() -> [CardPair] {
+        let matchingPairs: [CardPair]
+        if filterText.isEmpty {
+            matchingPairs = pairs
+        } else {
+            matchingPairs = pairs.filter { $0.displayName.contains(filterText) }
+        }
+
+        let metadataMatchingPairs = matchingPairs.filter {
+            metadataStore.matches($0, selectedTraits: selectedTraitFilters)
+        }
+
+        return metadataMatchingPairs.sorted { lhs, rhs in
+            switch sortOrder {
+            case .ascending:
+                return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+            case .descending:
+                return CardDirectoryIndexStore.naturalSortLess(rhs.displayName, lhs.displayName)
+            }
+        }
+    }
+
+    private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool, updateRecentChecks: Bool) {
+        let prevChecked = checkedIDs
+        let prevCheckedFronts = pairs
+            .filter { prevChecked.contains($0.id) }
+            .map { $0.front.lastPathComponent }
+
+        childDirectories = index.childDirectories
+        pairs = index.pairs
+        if pruneMetadata {
+            metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
+        }
+        updateVisiblePairs()
+
+        if updateRecentChecks {
+            if prevChecked.isEmpty {
+                checkedIDs = Set(pairs.filter { isRecentPair($0) }.map(\.id))
+            } else {
+                checkedIDs = Set(pairs.filter { prevCheckedFronts.contains($0.front.lastPathComponent) }.map(\.id))
+            }
+        } else {
+            checkedIDs = Set(pairs.filter { prevChecked.contains($0.id) }.map(\.id))
+        }
+
+        syncSelectionWithVisiblePairs()
     }
 
     // MARK: - Generate
@@ -175,10 +344,11 @@ final class EbayTitlesViewModel {
                 while let (idx, r) = await group.next() {
                     indexed.append((idx, r))
                     completed += 1
-                    let p = Double(completed) / total
+                    let done = completed
+                    let p = Double(done) / total
                     await MainActor.run {
                         progress = p
-                        log("[\(completed)/\(Int(total))] \(r.frontName): \(r.title)")
+                        log("[\(done)/\(Int(total))] \(r.frontName): \(r.title)")
                     }
                     if let (index, pair) = iterator.next() {
                         let frontName = pair.front.lastPathComponent
@@ -299,7 +469,7 @@ final class EbayTitlesViewModel {
         logText = logText.isEmpty ? line : logText + "\n" + line
     }
 
-    // MARK: - Watcher / pair building
+    // MARK: - Watcher
 
     private func startWatching() {
         watcher.watch(url: currentDirectory)
@@ -321,47 +491,4 @@ final class EbayTitlesViewModel {
         return latest.timeIntervalSinceNow >= -maxAgeSeconds
     }
 
-    private func buildPairs(from files: [URL]) -> [CardPair] {
-        let isBack = { (u: URL) in u.deletingPathExtension().lastPathComponent.lowercased().hasSuffix("_b") }
-        var fronts: [String: [URL]] = [:]
-        for f in files where !isBack(f) {
-            fronts[f.deletingPathExtension().lastPathComponent.lowercased(), default: []].append(f)
-        }
-        var used = Set<URL>(); var pairs: [CardPair] = []
-        for back in files.filter(isBack) {
-            let stem = String(back.deletingPathExtension().lastPathComponent.lowercased().dropLast(2))
-            if let front = fronts[stem]?.first(where: { !used.contains($0) }) {
-                pairs.append(CardPair(front: front, back: back))
-                used.insert(front); used.insert(back)
-            }
-        }
-        let remaining = files.filter { !used.contains($0) }
-        for i in stride(from: 0, to: remaining.count - 1, by: 2) {
-            var a = remaining[i], b = remaining[i+1]
-            if isBack(a) && !isBack(b) { swap(&a, &b) }
-            pairs.append(CardPair(front: a, back: b))
-        }
-        return pairs.sorted {
-            let m0 = (try? $0.front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let m1 = (try? $1.front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return m0 > m1
-        }
-    }
-
-    private func naturalSortLess(_ a: String, _ b: String) -> Bool {
-        let re = try? NSRegularExpression(pattern: #"(\d+)|(\D+)"#)
-        func tokens(_ s: String) -> [(Int?, String)] {
-            (re?.matches(in: s, range: NSRange(s.startIndex..., in: s)) ?? []).compactMap { m in
-                guard let r = Range(m.range, in: s) else { return nil }
-                let t = String(s[r]); return (Int(t), t)
-            }
-        }
-        let ta = tokens(a), tb = tokens(b)
-        for i in 0..<min(ta.count, tb.count) {
-            let (ai, as_) = ta[i]; let (bi, bs) = tb[i]
-            if let ai, let bi { if ai != bi { return ai < bi } }
-            else if as_ != bs { return as_ < bs }
-        }
-        return ta.count < tb.count
-    }
 }

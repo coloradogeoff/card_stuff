@@ -19,6 +19,8 @@
 		B010 /* EbayInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F010 /* EbayInstructions.swift */; };
 		B011 /* EbayTitlesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F011 /* EbayTitlesViewModel.swift */; };
 		B012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F012 /* Assets.xcassets */; };
+		B013 /* CardMetadataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013 /* CardMetadataStore.swift */; };
+		B014 /* CardDirectoryIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F014 /* CardDirectoryIndexStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +36,8 @@
 		F010 /* EbayInstructions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayInstructions.swift; sourceTree = "<group>"; };
 		F011 /* EbayTitlesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayTitlesViewModel.swift; sourceTree = "<group>"; };
 		F012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F013 /* CardMetadataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMetadataStore.swift; sourceTree = "<group>"; };
+		F014 /* CardDirectoryIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDirectoryIndexStore.swift; sourceTree = "<group>"; };
 		FAPP /* Neddog Cards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Neddog Cards.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -78,6 +82,8 @@
 				F009 /* SettingsStore.swift */,
 				F010 /* EbayInstructions.swift */,
 				F011 /* EbayTitlesViewModel.swift */,
+				F013 /* CardMetadataStore.swift */,
+				F014 /* CardDirectoryIndexStore.swift */,
 				F012 /* Assets.xcassets */,
 			);
 			path = CardNamer;
@@ -163,6 +169,8 @@
 				B009 /* SettingsStore.swift in Sources */,
 				B010 /* EbayInstructions.swift in Sources */,
 				B011 /* EbayTitlesViewModel.swift in Sources */,
+				B013 /* CardMetadataStore.swift in Sources */,
+				B014 /* CardDirectoryIndexStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
