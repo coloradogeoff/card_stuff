@@ -16,8 +16,9 @@ private enum DirectoryShortcut: String, CaseIterable {
 private enum AppWindowMetrics {
     static let minWidth: CGFloat = 1200
     static let minHeight: CGFloat = 800
-    static let defaultWidth: CGFloat = 1400
-    static let defaultHeight: CGFloat = 900
+    static let defaultWidth: CGFloat = 1700
+    static let defaultHeight: CGFloat = 1250
+    static let startupMargin: CGFloat = 40
 }
 
 enum SceneID {
@@ -97,8 +98,17 @@ struct CardNamerApp: App {
 }
 
 final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
+    private var didPlaceMainWindow = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.configureStartupWindowIfNeeded()
+        }
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         hideWindowTitles()
+        configureStartupWindowIfNeeded()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -109,5 +119,31 @@ final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
         for window in NSApplication.shared.windows {
             window.titleVisibility = .hidden
         }
+    }
+
+    private func configureStartupWindowIfNeeded() {
+        guard !didPlaceMainWindow else { return }
+        guard let window = NSApplication.shared.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) else {
+            DispatchQueue.main.async { [weak self] in
+                self?.configureStartupWindowIfNeeded()
+            }
+            return
+        }
+
+        let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+        let margin = AppWindowMetrics.startupMargin
+        let width = min(AppWindowMetrics.defaultWidth, max(AppWindowMetrics.minWidth, visibleFrame.width - margin * 2))
+        let height = min(AppWindowMetrics.defaultHeight, max(AppWindowMetrics.minHeight, visibleFrame.height - margin * 2))
+        let x = visibleFrame.maxX - width - margin
+        let y = visibleFrame.maxY - height - margin
+        let frame = NSRect(
+            x: max(visibleFrame.minX + margin, x),
+            y: max(visibleFrame.minY + margin, y),
+            width: width,
+            height: height
+        )
+
+        window.setFrame(frame, display: true)
+        didPlaceMainWindow = true
     }
 }
