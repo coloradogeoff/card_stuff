@@ -97,7 +97,17 @@ struct CardNamerApp: App {
 }
 
 final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidBecomeActive(_ notification: Notification) {
+        hideWindowTitles()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    private func hideWindowTitles() {
+        for window in NSApplication.shared.windows {
+            window.titleVisibility = .hidden
+        }
     }
 }

@@ -45,6 +45,7 @@ final class CardNamerViewModel {
     // Preview
     var showingBack: Bool = false
     var selectedTraits: CardTraits = CardTraits()
+    var previewRevision: Int = 0
 
     private let watcher = DirectoryWatcher()
     private let metadataStore = CardMetadataStore(directoryURL: SettingsStore.shared.incomingDirectory)
@@ -272,6 +273,11 @@ final class CardNamerViewModel {
 
     // MARK: - Delete card
 
+    func deleteSelectedCard() {
+        guard let selectedPair else { return }
+        deleteCard(selectedPair)
+    }
+
     func deleteCard(_ pair: CardPair) {
         do {
             try FileManager.default.trashItem(at: pair.front, resultingItemURL: nil)
@@ -346,6 +352,69 @@ final class CardNamerViewModel {
     func togglePreviewSide() {
         guard selectedPair != nil else { return }
         showingBack.toggle()
+    }
+
+    func rotatePreviewImageClockwise() {
+        guard let previewURL, !isBusy else { return }
+        isBusy = true
+        log("Rotating \(previewURL.lastPathComponent) 90 degrees clockwise...")
+
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try ImageEditingService.rotateClockwise(fileURL: previewURL)
+                }.value
+
+                await MainActor.run {
+                    CardPreviewView.invalidateCache(for: previewURL)
+                    self.previewRevision += 1
+                    log("Rotated \(previewURL.lastPathComponent)")
+                    isBusy = false
+                    refreshImages(silent: true)
+                }
+            } catch {
+                await MainActor.run {
+                    log("Rotate failed: \(error.localizedDescription)")
+                    isBusy = false
+                }
+            }
+        }
+    }
+
+    func downloadPSACard(certNumber: String) {
+        let trimmedCert = certNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCert.isEmpty, !isBusy else { return }
+
+        let token = SettingsStore.shared.psaToken
+        guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            log("PSA download failed: No PSA API token found. Add it in Settings.")
+            return
+        }
+
+        isBusy = true
+        log("Downloading PSA cert \(trimmedCert)...")
+        let destination = currentDirectory
+
+        Task {
+            do {
+                let output = try await PSADownloadService.download(
+                    certNumber: trimmedCert,
+                    outputDirectory: destination,
+                    token: token
+                )
+                await MainActor.run {
+                    if !output.isEmpty { log(output) }
+                    log("Downloaded PSA cert \(trimmedCert) to \(destination.lastPathComponent)")
+                    isBusy = false
+                    refreshImages()
+                }
+            } catch {
+                await MainActor.run {
+                    log("PSA download failed: \(error.localizedDescription)")
+                    isBusy = false
+                }
+            }
+        }
     }
 
     func toggleTrait(_ trait: CardTrait) {

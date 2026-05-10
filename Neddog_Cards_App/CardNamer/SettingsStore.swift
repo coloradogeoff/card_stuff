@@ -30,6 +30,11 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "selectedModel") }
     }
 
+    var psaToken: String {
+        get { defaults.string(forKey: "psa_api_token") ?? "" }
+        set { defaults.set(newValue, forKey: "psa_api_token") }
+    }
+
     var quickDirectories: [QuickDirectory] {
         [
             QuickDirectory(name: DirectoryNames.incoming, path: incomingDirectory.path),

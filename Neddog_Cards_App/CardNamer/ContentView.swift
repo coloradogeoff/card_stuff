@@ -13,6 +13,9 @@ struct ContentView: View {
     let ebayVM: EbayTitlesViewModel
     @State private var showSettings = false
     @State private var appMode: AppMode = .cardNamer
+    @State private var showDeleteCardConfirmation = false
+    @State private var showPSAPrompt = false
+    @State private var psaCertNumber = ""
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -22,13 +25,44 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showPSAPrompt) {
+            PSACertPromptSheet(
+                certNumber: $psaCertNumber,
+                onCancel: {
+                    psaCertNumber = ""
+                    showPSAPrompt = false
+                },
+                onDownload: {
+                    let cert = psaCertNumber
+                    psaCertNumber = ""
+                    showPSAPrompt = false
+                    downloadPSACard(certNumber: cert)
+                }
+            )
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) { directoryMenu }
+            ToolbarItem(placement: .navigation) { psaButton }
+            ToolbarItem(placement: .navigation) { rotateButton }
+            ToolbarItem(placement: .navigation) { deleteButton }
             ToolbarItem(placement: .principal) { modePicker }
+            ToolbarItem(placement: .primaryAction) { titleToolbarItem }
             ToolbarItem(placement: .primaryAction) {
                 Button { showSettings = true } label: { Image(systemName: "gear") }
-                    .help("API Key & Model Settings")
+                    .help("OpenAI / PSA Settings")
             }
+        }
+        .confirmationDialog(
+            activeDeleteMessage,
+            isPresented: $showDeleteCardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                deleteSelectedCard()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Both the front and back image files for the selected card will be moved to the Trash.")
         }
         .onReceive(NotificationCenter.default.publisher(for: .showEbayResultsWindow)) { _ in
             openWindow(id: SceneID.ebayResults)
@@ -84,6 +118,49 @@ struct ContentView: View {
         else { ebayVM.refreshImages() }
     }
 
+    private func rotatePreviewImageClockwise() {
+        if appMode == .cardNamer { cardVM.rotatePreviewImageClockwise() }
+        else { ebayVM.rotatePreviewImageClockwise() }
+    }
+
+    private func downloadPSACard(certNumber: String) {
+        if appMode == .cardNamer { cardVM.downloadPSACard(certNumber: certNumber) }
+        else { ebayVM.downloadPSACard(certNumber: certNumber) }
+    }
+
+    private func deleteSelectedCard() {
+        if appMode == .cardNamer { cardVM.deleteSelectedCard() }
+        else { ebayVM.deleteSelectedCard() }
+    }
+
+    private var canRotatePreviewImage: Bool {
+        if appMode == .cardNamer {
+            return cardVM.previewURL != nil && !cardVM.isBusy
+        }
+        return ebayVM.previewURL != nil && !ebayVM.isBusy
+    }
+
+    private var canDeleteSelectedCard: Bool {
+        if appMode == .cardNamer {
+            return cardVM.selectedPair != nil && !cardVM.isBusy
+        }
+        return ebayVM.selectedPair != nil && !ebayVM.isBusy
+    }
+
+    private var canDownloadPSA: Bool {
+        if appMode == .cardNamer {
+            return !cardVM.isBusy
+        }
+        return !ebayVM.isBusy
+    }
+
+    private var activeDeleteMessage: String {
+        if appMode == .cardNamer {
+            return "Move selected card to the Trash?"
+        }
+        return "Move selected card pair to the Trash?"
+    }
+
     private var directoryMenu: some View {
         Menu {
             ForEach(SettingsStore.shared.quickDirectories) { dir in
@@ -114,6 +191,42 @@ struct ContentView: View {
         }
         .menuStyle(.borderlessButton)
         .help(currentDirectoryPath)
+    }
+
+    private var rotateButton: some View {
+        Button {
+            rotatePreviewImageClockwise()
+        } label: {
+            Label("Rotate", systemImage: "rotate.right")
+        }
+        .disabled(!canRotatePreviewImage)
+        .help("Rotate the currently displayed card image 90 degrees clockwise")
+    }
+
+    private var psaButton: some View {
+        Button {
+            showPSAPrompt = true
+        } label: {
+            Label("PSA", systemImage: "arrow.down.circle")
+        }
+        .disabled(!canDownloadPSA)
+        .help("Download card images from PSA by certification number")
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            showDeleteCardConfirmation = true
+        } label: {
+            Label("Delete Card", systemImage: "trash")
+        }
+        .disabled(!canDeleteSelectedCard)
+        .help("Delete the selected card's front and back image files")
+    }
+
+    private var titleToolbarItem: some View {
+        Text("Neddog Cards")
+            .font(.headline)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -358,7 +471,7 @@ struct CardNamerDetail: View {
             VStack(spacing: 0) {
                 Color(nsColor: .windowBackgroundColor)
                     .overlay {
-                        CardPreviewView(imageURL: vm.previewURL)
+                        CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
                             .onTapGesture { vm.togglePreviewSide() }
                     }
                     .overlay(alignment: .bottom) {
@@ -638,7 +751,7 @@ struct EbayTitlesDetail: View {
         VStack(spacing: 0) {
             Color(nsColor: .windowBackgroundColor)
                 .overlay {
-                    CardPreviewView(imageURL: vm.previewURL)
+                    CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
                         .onTapGesture { vm.togglePreviewSide() }
                 }
                 .overlay(alignment: .bottom) {
@@ -830,10 +943,15 @@ struct EbayTitlesResultsWindow: View {
 
 struct CardPreviewView: View {
     let imageURL: URL?
+    let reloadID: Int
     @State private var loadedURL: URL?
     @State private var loadedImage: NSImage?
 
     private static let imageCache = NSCache<NSURL, NSImage>()
+
+    static func invalidateCache(for imageURL: URL) {
+        imageCache.removeObject(forKey: imageURL as NSURL)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -862,7 +980,7 @@ struct CardPreviewView: View {
                 }
             }
         }
-        .task(id: imageURL) {
+        .task(id: "\(imageURL?.path ?? ""):\(reloadID)") {
             await loadImage()
         }
     }
@@ -896,11 +1014,45 @@ struct CardPreviewView: View {
     }
 }
 
+struct PSACertPromptSheet: View {
+    @Binding var certNumber: String
+    let onCancel: () -> Void
+    let onDownload: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Download from PSA")
+                .font(.title3.bold())
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Certification Number")
+                    .font(.headline)
+                TextField("Enter PSA cert number", text: $certNumber)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.escape)
+                Button("Download", action: onDownload)
+                    .keyboardShortcut(.return)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(certNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
+    }
+}
+
 // MARK: - Settings sheet
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey: String = SettingsStore.shared.openAIKey
+    @State private var psaToken: String = SettingsStore.shared.psaToken
     @State private var selectedModel: String = SettingsStore.shared.selectedModel
     @State private var availableModels: [String] = []
     @State private var loadingModels = false
@@ -919,6 +1071,20 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("sk-…", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                }
+                .padding(4)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("PSA API Token", systemImage: "key.horizontal.fill")
+                        .font(.headline)
+                    Text("Used by the PSA download button to fetch front and back images by cert number.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Paste PSA bearer token", text: $psaToken)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
                 }
@@ -975,6 +1141,7 @@ struct SettingsView: View {
                     .keyboardShortcut(.escape)
                 Button("Save") {
                     SettingsStore.shared.openAIKey = apiKey
+                    SettingsStore.shared.psaToken = psaToken
                     SettingsStore.shared.selectedModel = selectedModel
                     dismiss()
                 }
