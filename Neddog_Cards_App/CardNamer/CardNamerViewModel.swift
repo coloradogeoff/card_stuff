@@ -16,6 +16,12 @@ final class CardNamerViewModel {
             syncSelectionWithVisiblePairs()
         }
     }
+    var sortField: CardPairSortField = .name {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
     var sortOrder: CardPairSortOrder = .descending {
         didSet {
             updateVisiblePairs()
@@ -143,10 +149,22 @@ final class CardNamerViewModel {
         return metadataMatchingPairs.sorted { lhs, rhs in
             switch sortOrder {
             case .ascending:
-                return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+                return sortLess(lhs, rhs)
             case .descending:
-                return CardDirectoryIndexStore.naturalSortLess(rhs.displayName, lhs.displayName)
+                return sortLess(rhs, lhs)
             }
+        }
+    }
+
+    private func sortLess(_ lhs: CardPair, _ rhs: CardPair) -> Bool {
+        switch sortField {
+        case .name:
+            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+        case .modificationDate:
+            let lhsDate = lhs.modificationDate
+            let rhsDate = rhs.modificationDate
+            if lhsDate != rhsDate { return lhsDate < rhsDate }
+            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
         }
     }
 
@@ -294,15 +312,22 @@ final class CardNamerViewModel {
 
     func moveSelectedCard() {
         guard let pair = selectedPair else { return }
-        movePairs([pair])
+        movePairs([pair], to: SettingsStore.shared.existingCardsDirectory)
     }
 
     func moveAllCards() {
-        movePairs(visiblePairs)
+        movePairs(visiblePairs, to: SettingsStore.shared.existingCardsDirectory)
     }
 
-    private func movePairs(_ targets: [CardPair]) {
-        let dest = SettingsStore.shared.existingCardsDirectory
+    func moveCardToSales(_ pair: CardPair) {
+        movePairs([pair], to: SettingsStore.shared.currentSalesDirectory)
+    }
+
+    func moveCardToCollection(_ pair: CardPair) {
+        movePairs([pair], to: SettingsStore.shared.existingCardsDirectory)
+    }
+
+    private func movePairs(_ targets: [CardPair], to dest: URL) {
         try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
         var moved = 0
         var skipped = 0

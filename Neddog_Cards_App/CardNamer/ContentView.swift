@@ -46,7 +46,6 @@ struct ContentView: View {
             ToolbarItem(placement: .navigation) { rotateButton }
             ToolbarItem(placement: .navigation) { deleteButton }
             ToolbarItem(placement: .principal) { modePicker }
-            ToolbarItem(placement: .primaryAction) { titleToolbarItem }
             ToolbarItem(placement: .primaryAction) {
                 Button { showSettings = true } label: { Image(systemName: "gear") }
                     .help("OpenAI / PSA Settings")
@@ -223,11 +222,6 @@ struct ContentView: View {
         .help("Delete the selected card's front and back image files")
     }
 
-    private var titleToolbarItem: some View {
-        Text("Neddog Cards")
-            .font(.headline)
-            .foregroundStyle(.secondary)
-    }
 }
 
 // MARK: - Trait controls
@@ -346,6 +340,22 @@ struct CardNamerSidebar: View {
                         }
                         .tag(pair.id)
                         .contextMenu {
+                            Button {
+                                vm.moveCardToSales(pair)
+                            } label: {
+                                Label("Move to Sales", systemImage: "cart")
+                            }
+                            .disabled(vm.isBusy)
+
+                            Button {
+                                vm.moveCardToCollection(pair)
+                            } label: {
+                                Label("Move to Collection", systemImage: "archivebox")
+                            }
+                            .disabled(vm.isBusy)
+
+                            Divider()
+
                             Button(role: .destructive) {
                                 vm.deleteCard(pair)
                             } label: {
@@ -421,7 +431,15 @@ struct CardNamerSidebar: View {
             }
             .padding(.top, 6)
             HStack(spacing: 8) {
-                Picker("Sort", selection: $vm.sortOrder) {
+                Picker("Sort By", selection: $vm.sortField) {
+                    ForEach(CardPairSortField.allCases) { field in
+                        Text(field.rawValue).tag(field)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                Picker("Sort Order", selection: $vm.sortOrder) {
                     ForEach(CardPairSortOrder.allCases) { order in
                         Text(order.rawValue).tag(order)
                     }
@@ -713,7 +731,15 @@ struct EbayTitlesSidebar: View {
             }
             .padding(.top, 6)
             HStack(spacing: 8) {
-                Picker("Sort", selection: $vm.sortOrder) {
+                Picker("Sort By", selection: $vm.sortField) {
+                    ForEach(CardPairSortField.allCases) { field in
+                        Text(field.rawValue).tag(field)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                Picker("Sort Order", selection: $vm.sortOrder) {
                     ForEach(CardPairSortOrder.allCases) { order in
                         Text(order.rawValue).tag(order)
                     }

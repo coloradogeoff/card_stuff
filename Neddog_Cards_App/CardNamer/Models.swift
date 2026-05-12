@@ -19,6 +19,19 @@ struct CardPair: Identifiable, Equatable {
         }
         return stem
     }
+
+    var modificationDate: Date {
+        let frontDate = (try? front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        let backDate = (try? back.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        return max(frontDate, backDate)
+    }
+}
+
+enum CardPairSortField: String, CaseIterable, Identifiable {
+    case name = "Name"
+    case modificationDate = "Mod Date"
+
+    var id: Self { self }
 }
 
 enum CardPairSortOrder: String, CaseIterable, Identifiable {
