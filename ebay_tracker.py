@@ -209,7 +209,11 @@ def extract_text(payload):
 _SKIP_LINE = re.compile(
     r'^(Price:|Estimated delivery:|Order number:|Seller:|Track|Hi |Check|View|'
     r'Your order|Shipped|Delivered|Carrier:|How useful|© |eBay |Update your|'
-    r'Email Reference|If you have|\$[\d.]+|[\d.\-]+$|Pyp:|Pyc:)',
+    r'Email Reference|If you have|\$[\d.]+|[\d.\-]+$|Pyp:|Pyc:|'
+    r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|'
+    r'(AU|US|CA|NZ|GB|CAD|USD|AUD|NZD|GBP|EUR|JPY)\s*\$|'
+    r'\(\s*\d+\s*x\s*\$|'
+    r'The seller |Your message|Buy It Now|Quantity:|Item subtotal|Subtotal:|Shipping:)',
     re.IGNORECASE
 )
 
@@ -219,7 +223,7 @@ _NOISE_RE = re.compile(
     r'pay now to receive|automatic checkout is set|best offer|'
     r'you have a question|sent a message|sent a question|'
     r'feedback reminder|seller left feedback|left you feedback|'
-    r'invoice from|unpaid item',
+    r'invoice from|unpaid item|seller has responded|response from the seller',
     re.IGNORECASE
 )
 
@@ -319,7 +323,9 @@ def emails_to_purchase_map(messages):
         return purchases[item_id]
 
     def apply_update(p, stage, date_str, ts, name='', est='', mid=None):
-        if not p['name'] and name:
+        if name and not _SKIP_LINE.match(name) and (
+            not p['name'] or _SKIP_LINE.match(p['name'])
+        ):
             p['name'] = name
         if mid and mid not in p['message_ids']:
             p['message_ids'].append(mid)
@@ -423,9 +429,13 @@ def merge_with_state(existing, new_items):
             if item.get('est_delivery'):
                 existing_p['est_delivery'] = item['est_delivery']
 
-        # Update name if we now have one
-        if not existing_p.get('name') and item.get('name'):
-            existing_p['name'] = item['name']
+        # Update name if we now have a better one (existing missing or looks like noise)
+        new_name = item.get('name')
+        old_name = existing_p.get('name')
+        if new_name and not _SKIP_LINE.match(new_name) and (
+            not old_name or _SKIP_LINE.match(old_name)
+        ):
+            existing_p['name'] = new_name
 
         # Update order date if we now have one
         if (not existing_p.get('order_date') or existing_p['order_date'] == '?') \
