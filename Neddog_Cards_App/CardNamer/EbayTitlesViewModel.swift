@@ -21,6 +21,12 @@ final class EbayTitlesViewModel {
             syncSelectionWithVisiblePairs()
         }
     }
+    var sortField: CardPairSortField = .name {
+        didSet {
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
     var sortOrder: CardPairSortOrder = .descending {
         didSet {
             updateVisiblePairs()
@@ -330,10 +336,22 @@ final class EbayTitlesViewModel {
         return metadataMatchingPairs.sorted { lhs, rhs in
             switch sortOrder {
             case .ascending:
-                return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+                return sortLess(lhs, rhs)
             case .descending:
-                return CardDirectoryIndexStore.naturalSortLess(rhs.displayName, lhs.displayName)
+                return sortLess(rhs, lhs)
             }
+        }
+    }
+
+    private func sortLess(_ lhs: CardPair, _ rhs: CardPair) -> Bool {
+        switch sortField {
+        case .name:
+            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+        case .modificationDate:
+            let lhsDate = lhs.modificationDate
+            let rhsDate = rhs.modificationDate
+            if lhsDate != rhsDate { return lhsDate < rhsDate }
+            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
         }
     }
 
