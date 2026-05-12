@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build a Release version of one of the Swift apps and copy the .app to ~/Desktop.
+# Build a Release version of one of the Swift apps and copy the .app to ~/Applications.
 # Usage: ./make.sh cards
 #        ./make.sh mail
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DESKTOP="$HOME/Desktop"
+APPLICATIONS_DIR="$HOME/Applications"
 
 usage() {
     echo "Usage: $0 {cards|mail}" >&2
@@ -30,9 +30,10 @@ build() {
         -derivedDataPath "$build_dir" \
         build
 
-    rm -rf "$DESKTOP/$product"
-    cp -R "$build_dir/Build/Products/Release/$product" "$DESKTOP/"
-    echo "✓ $DESKTOP/$product"
+    mkdir -p "$APPLICATIONS_DIR"
+    rm -rf "$APPLICATIONS_DIR/$product"
+    cp -R "$build_dir/Build/Products/Release/$product" "$APPLICATIONS_DIR/"
+    echo "✓ $APPLICATIONS_DIR/$product"
 }
 
 case "${1:-}" in
