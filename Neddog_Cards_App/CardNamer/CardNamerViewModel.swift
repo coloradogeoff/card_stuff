@@ -34,6 +34,8 @@ final class CardNamerViewModel {
             syncSelectionWithVisiblePairs()
         }
     }
+    var pairsWithTraits: Set<String> = []
+
     var selectedPairID: CardPair.ID? {
         didSet {
             proposedName = selectedPair?.baseName ?? ""
@@ -446,6 +448,7 @@ final class CardNamerViewModel {
         let newValue = !metadataStore.traits(for: selectedPair).contains(trait)
         metadataStore.set(trait, to: newValue, for: selectedPair)
         updateSelectedTraits()
+        updatePairsWithTraits()
         updateVisiblePairs()
         syncSelectionWithVisiblePairs()
     }
@@ -496,6 +499,12 @@ final class CardNamerViewModel {
         visiblePairs = filteredAndSortedPairs()
     }
 
+    private func updatePairsWithTraits() {
+        pairsWithTraits = Set(pairs.compactMap { pair in
+            metadataStore.traits(for: pair).hasAnyTrait ? pair.baseName : nil
+        })
+    }
+
     private func updateSelectedTraits() {
         guard let selectedPair else {
             selectedTraits = CardTraits()
@@ -511,6 +520,7 @@ final class CardNamerViewModel {
         if pruneMetadata {
             metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
         }
+        updatePairsWithTraits()
         updateVisiblePairs()
 
         if let prevID, pairs.contains(where: { $0.id == prevID }) {
