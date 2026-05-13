@@ -330,10 +330,17 @@ struct CardNamerSidebar: View {
                 Section {
                     ForEach(vm.visiblePairs) { pair in
                         Label {
-                            Text(pair.displayName)
-                                .font(.system(size: 12))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            HStack(spacing: 4) {
+                                Text(pair.displayName)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                if vm.pairsWithTraits.contains(pair.baseName) {
+                                    Image(systemName: "tag.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         } icon: {
                             Image(systemName: "photo.on.rectangle")
                                 .foregroundStyle(.secondary)
