@@ -150,15 +150,14 @@ final class EbayTitlesViewModel {
 
         refreshTask = Task {
             let index = await Task.detached(priority: .userInitiated) {
-                let scannedIndex = CardDirectoryIndexStore.scanDirectory(dir)
-                CardDirectoryIndexStore.saveCacheIfNeeded(for: scannedIndex)
-                return scannedIndex
+                CardDirectoryIndexStore.scanDirectory(dir)
             }.value
 
             await MainActor.run {
                 guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
                 let previousPairIDs = self.pairs.map(\.id)
                 self.applyDirectoryIndex(index, pruneMetadata: true, updateRecentChecks: true)
+                Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
                 if !silent {
                     self.log("Loaded \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
                 } else if previousPairIDs != index.pairs.map(\.id) {

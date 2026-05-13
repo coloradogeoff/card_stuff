@@ -194,15 +194,14 @@ final class CardNamerViewModel {
 
         refreshTask = Task {
             let index = await Task.detached(priority: .userInitiated) {
-                let scannedIndex = CardDirectoryIndexStore.scanDirectory(dir)
-                CardDirectoryIndexStore.saveCacheIfNeeded(for: scannedIndex)
-                return scannedIndex
+                CardDirectoryIndexStore.scanDirectory(dir)
             }.value
 
             await MainActor.run {
                 guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
                 let previousPairIDs = self.pairs.map(\.id)
                 self.applyDirectoryIndex(index, pruneMetadata: true)
+                Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
 
                 if !silent {
                     if index.imageFileCount == 0 {
