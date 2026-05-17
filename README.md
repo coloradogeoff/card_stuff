@@ -99,6 +99,24 @@ Credentials: `--token` arg, or `.psa-token.txt` in repo root or `~/.psa-token.tx
 
 ---
 
+### `psa_dutton.py`
+Wraps `psa_download.py` to process a PSA collection export in daily batches and keep download state in JSON.
+
+```bash
+python psa_dutton.py run
+python psa_dutton.py status
+python psa_dutton.py install-cron
+```
+
+Default behavior:
+- reads `~/Downloads/My Collection CSV - All.csv`
+- writes all downloaded images directly into `~/Desktop/Cards/PSA/`
+- tracks progress in `~/Desktop/Cards/PSA/.psa_dutton_state.json`
+- installs a daily `7:00am` cron job that downloads `40` pending certs per run
+- waits `2` seconds between cards by default
+
+---
+
 ### `card_merge.py`
 Merges card front/back photos into a side-by-side grid image.
 
@@ -148,7 +166,7 @@ Native macOS SwiftUI app that combines two workflows:
 
 Directory sources:
 - `Incoming (⌘1)` -> `/Users/geoff/incoming cards`
-- `Desktop/Cards (⌘2)` -> `/Volumes/Dutton 2TB/Cards/Mix`
+- `Collection (⌘2)` -> `/Volumes/Dutton 2TB/Cards/Mix`
 - `Current Sales (⌘3)` -> current `~/Sales/YYYY/MM` or `$SALES_ROOT/YYYY/MM`, matching `sale.py`
 
 Current behavior:
