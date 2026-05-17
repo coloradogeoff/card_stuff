@@ -12,8 +12,8 @@ import anthropic
 import typer
 
 PROMPT_QUESTIONS = [
-    "Who is famous that was born on this day? 240 chars or less bio. Plain text only, no markdown.",
-    "Give one notable historical event that happened on this day in 240 chars or less. Plain text only, no markdown.",
+    "Name one notable person born on this calendar date in a past year. Use the month and day only, not the current year. Include a 240 chars or less bio. Plain text only, no markdown.",
+    "Give one notable historical event that happened on this calendar date in a past year. Use the month and day only, not the current year. Keep it under 240 chars. Plain text only, no markdown.",
     "What is one interesting science fact for today? Keep it under 240 chars. Plain text only, no markdown.",
     "Send me a haiku for today. 240 chars or less. Plain text only, no markdown.",
 ]
@@ -181,13 +181,22 @@ def claude_create(client: anthropic.Anthropic, **kwargs) -> anthropic.types.Mess
 
 def build_text_message(client: anthropic.Anthropic) -> str:
     today = datetime.date.today().strftime("%B %d, %Y")
+    month_day = datetime.date.today().strftime("%B %d")
     question = random.choice(PROMPT_QUESTIONS)
+
+    if "calendar date" in question:
+        prompt = (
+            f"Today is {today}. The calendar date is {month_day}. "
+            f"{question}"
+        )
+    else:
+        prompt = f"Today is {today}. {question}"
 
     response = claude_create(
         client,
         model=MODEL,
         max_tokens=400,
-        messages=[{"role": "user", "content": f"Today is {today}. {question}"}],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     text = next((b.text for b in response.content if b.type == "text"), "")
