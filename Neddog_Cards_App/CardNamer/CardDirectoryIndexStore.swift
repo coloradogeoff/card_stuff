@@ -32,9 +32,12 @@ enum CardDirectoryIndexStore {
                     back: directoryURL.appendingPathComponent($0.back)
                 )
             }
+            let childDirectories = cache.childDirectoryNames.map {
+                directoryURL.appendingPathComponent($0)
+            }
             return CardDirectoryIndex(
                 directoryURL: directoryURL,
-                childDirectories: [],
+                childDirectories: childDirectories,
                 imageFileCount: cache.imageFileCount,
                 pairs: pairs
             )
@@ -75,6 +78,20 @@ enum CardDirectoryIndexStore {
             return
         }
 
+        let newPairFronts = index.pairs.map { $0.front.lastPathComponent }
+        let newChildNames = index.childDirectories.map(\.lastPathComponent).sorted()
+
+        // Skip the write when nothing changed — writing triggers the directory watcher,
+        // which would cause an infinite refresh loop on large directories.
+        if let existing = try? Data(contentsOf: cacheURL),
+           let existingCache = try? JSONDecoder().decode(CardDirectoryCacheFile.self, from: existing),
+           existingCache.version == cacheVersion,
+           existingCache.imageFileCount == index.imageFileCount,
+           existingCache.pairs.map(\.front) == newPairFronts,
+           existingCache.childDirectoryNames.sorted() == newChildNames {
+            return
+        }
+
         let cache = CardDirectoryCacheFile(
             version: cacheVersion,
             generatedAt: Date(),
@@ -88,7 +105,8 @@ enum CardDirectoryIndexStore {
                     frontModificationDate: modificationDate(pair.front),
                     backModificationDate: modificationDate(pair.back)
                 )
-            }
+            },
+            childDirectoryNames: index.childDirectories.map(\.lastPathComponent)
         )
 
         do {
@@ -199,6 +217,7 @@ private struct CardDirectoryCacheFile: Codable {
     var generatedAt: Date
     var imageFileCount: Int
     var pairs: [CardDirectoryCachePair]
+    var childDirectoryNames: [String] = []
 }
 
 private struct CardDirectoryCachePair: Codable {

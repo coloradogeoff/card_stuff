@@ -7,14 +7,15 @@ final class DirectoryWatcher {
 
     func watch(url: URL) {
         stop()
-        fd = open(url.path, O_EVTONLY)
+        let newFd = open(url.path, O_EVTONLY)
+        fd = newFd
         guard fd >= 0 else { return }
-        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
+        source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: newFd, eventMask: .write, queue: .main)
         source?.setEventHandler { [weak self] in
             self?.onChange?()
         }
-        source?.setCancelHandler { [weak self] in
-            if let fd = self?.fd, fd >= 0 { close(fd) }
+        source?.setCancelHandler {
+            close(newFd)
         }
         source?.resume()
     }
