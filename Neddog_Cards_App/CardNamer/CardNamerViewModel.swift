@@ -276,9 +276,11 @@ final class CardNamerViewModel {
 
         do {
             if pair.front.standardized != newFront.standardized {
+                CardPreviewView.invalidateCache(for: pair.front)
                 try FileManager.default.moveItem(at: pair.front, to: newFront)
             }
             if pair.back.standardized != newBack.standardized {
+                CardPreviewView.invalidateCache(for: pair.back)
                 try FileManager.default.moveItem(at: pair.back, to: newBack)
             }
             metadataStore.moveMetadata(from: pair.baseName, to: sanitized)

@@ -14,7 +14,7 @@ final class SettingsStore {
     static let shared = SettingsStore()
     private enum DirectoryNames {
         static let incoming = "Incoming (⌘1)"
-        static let desktopCards = "Desktop/Cards (⌘2)"
+        static let desktopCards = "Collection (⌘2)"
         static let currentSales = "Current Sales (⌘3)"
     }
 
