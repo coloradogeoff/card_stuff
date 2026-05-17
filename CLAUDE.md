@@ -61,6 +61,8 @@ Scripts look for credentials in this priority order:
 
 **PSA downloader** (`psa_download.py`): Hits two PSA public APIs (cert data + images). Uses `curl` by default (bypasses WAF) with `requests` fallback. Downloads front/back, resizes to 75% at quality 65.
 
+**`psa_dutton.py`**: Wraps `psa_download.py` to batch-process a PSA collection CSV export. Reads `~/Downloads/My Collection CSV - All.csv`, downloads images to `~/Desktop/Cards/PSA/`, tracks state in `.psa_dutton_state.json`. Runs 40 certs per batch with a 2s delay. Has `run`, `status`, and `install-cron` subcommands; cron fires at 7am daily.
+
 **GUI apps** (`Card Namer App/`, `Ebay_Titles/`, `Letter Track App/`): PyQt5 desktop apps. `card_namer.py` uses OCR (pytesseract) + OpenAI to batch-rename card image files. `ebay_title_gui.py` generates eBay listing titles. `lettertrack.py` tracks physical mail via TinyURL-shortened tracking links.
 
 **`Neddog_Cards_App/`**: Native macOS SwiftUI app — newer rewrite combining the Card Namer (OCR + OpenAI batch rename) and eBay Titles workflows in one app. Uses the Vision framework for OCR (no pytesseract dep) and URLSession for OpenAI (gpt-4o default, model list fetched live). Open `Neddog_Cards_App/Neddog Cards.xcodeproj` in Xcode. Quick directories (in `SettingsStore.swift`): `~/incoming cards` (⌘1), `/Volumes/Dutton 2TB/Cards/Mix` (⌘2, also the `existingCardsDirectory` target for moves), `~/Sales/YYYY/MM` (⌘3, matches `sale.py`). Not sandboxed (personal tool).
