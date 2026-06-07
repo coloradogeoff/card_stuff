@@ -296,6 +296,65 @@ struct TraitChip: View {
     }
 }
 
+// MARK: - Sidebar folder selection
+
+struct SidebarDirectoryMenu: View {
+    let directoryPath: String
+    let switchDirectory: (QuickDirectory) -> Void
+    let chooseDirectory: () -> Void
+    let refreshImages: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Folder")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Menu {
+                ForEach(SettingsStore.shared.quickDirectories) { directory in
+                    Button {
+                        switchDirectory(directory)
+                    } label: {
+                        Label {
+                            Text(directory.name) +
+                            Text(directory.isAvailable ? "" : "  (unavailable)")
+                                .foregroundStyle(.secondary)
+                        } icon: {
+                            Image(systemName: directory.isAvailable ? "folder.fill" : "folder.badge.questionmark")
+                        }
+                    }
+                    .disabled(!directory.isAvailable)
+                }
+                Divider()
+                Button("Browse…", action: chooseDirectory)
+                Divider()
+                Button("Refresh", action: refreshImages)
+            } label: {
+                HStack {
+                    Label {
+                        Text(URL(fileURLWithPath: directoryPath).lastPathComponent)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } icon: {
+                        Image(systemName: "folder")
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .help(directoryPath)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
 // MARK: - Card Namer Sidebar
 
 struct CardNamerSidebar: View {
@@ -303,6 +362,12 @@ struct CardNamerSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SidebarDirectoryMenu(
+                directoryPath: vm.directoryPath,
+                switchDirectory: { vm.switchTo($0) },
+                chooseDirectory: { vm.chooseDirectory() },
+                refreshImages: { vm.refreshImages() }
+            )
             sourceHeader
             List(selection: $vm.selectedPairID) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
@@ -622,6 +687,12 @@ struct EbayTitlesSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SidebarDirectoryMenu(
+                directoryPath: vm.directoryPath,
+                switchDirectory: { vm.switchTo($0) },
+                chooseDirectory: { vm.chooseDirectory() },
+                refreshImages: { vm.refreshImages() }
+            )
             sourceHeader
             List(selection: $vm.selectedPairID) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
