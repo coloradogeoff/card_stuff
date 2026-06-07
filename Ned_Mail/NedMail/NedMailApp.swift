@@ -31,6 +31,11 @@ struct RootView: View {
                 .tabItem {
                     Label("Envelope Print", systemImage: "envelope")
                 }
+
+            PostageView()
+                .tabItem {
+                    Label("Postage", systemImage: "stamp")
+                }
         }
     }
 }

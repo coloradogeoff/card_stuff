@@ -16,6 +16,8 @@
 		B007 /* EnvelopePDF.swift in Sources */ = {isa = PBXBuildFile; fileRef = F007 /* EnvelopePDF.swift */; };
 		B008 /* EnvelopePrinter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F008 /* EnvelopePrinter.swift */; };
 		B009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F009 /* Assets.xcassets */; };
+		B010 /* PostageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F011 /* PostageModels.swift */; };
+		B011 /* PostageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F012 /* PostageView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +31,8 @@
 		F008 /* EnvelopePrinter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopePrinter.swift; sourceTree = "<group>"; };
 		F009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F010 /* NedMail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NedMail.entitlements; sourceTree = "<group>"; };
+		F011 /* PostageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostageModels.swift; sourceTree = "<group>"; };
+		F012 /* PostageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostageView.swift; sourceTree = "<group>"; };
 		FAPP /* Ned Mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ned Mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -70,6 +74,8 @@
 				F006 /* EnvelopeModels.swift */,
 				F007 /* EnvelopePDF.swift */,
 				F008 /* EnvelopePrinter.swift */,
+				F011 /* PostageModels.swift */,
+				F012 /* PostageView.swift */,
 				F009 /* Assets.xcassets */,
 				F010 /* NedMail.entitlements */,
 			);
@@ -153,6 +159,8 @@
 				B006 /* EnvelopeModels.swift in Sources */,
 				B007 /* EnvelopePDF.swift in Sources */,
 				B008 /* EnvelopePrinter.swift in Sources */,
+				B010 /* PostageModels.swift in Sources */,
+				B011 /* PostageView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
