@@ -8,15 +8,27 @@ struct CardDirectoryIndex {
 }
 
 enum CardDirectoryIndexStore {
-    static let cacheFileName = ".card_cache"
     static let cacheThreshold = 200
 
     private static let cacheVersion = 1
     private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
 
+    // Cache lives outside the watched directory to prevent the atomic write
+    // from triggering the kqueue watcher and causing an infinite refresh loop.
+    private static func cacheURL(for directoryURL: URL) -> URL {
+        let appCaches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheDir = appCaches.appendingPathComponent("NeddogCards/DirectoryIndex")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let encoded = Data(directoryURL.path.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: ".")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return cacheDir.appendingPathComponent(encoded + ".cache")
+    }
+
     static func cachedIndex(for directoryURL: URL) -> CardDirectoryIndex? {
         let directoryURL = directoryURL.standardized
-        let cacheURL = directoryURL.appendingPathComponent(cacheFileName)
+        let cacheURL = cacheURL(for: directoryURL)
         guard FileManager.default.fileExists(atPath: cacheURL.path) else { return nil }
 
         do {
@@ -73,7 +85,7 @@ enum CardDirectoryIndexStore {
     }
 
     static func saveCacheIfNeeded(for index: CardDirectoryIndex) {
-        let cacheURL = index.directoryURL.appendingPathComponent(cacheFileName)
+        let cacheURL = cacheURL(for: index.directoryURL)
         guard index.imageFileCount > cacheThreshold || FileManager.default.fileExists(atPath: cacheURL.path) else {
             return
         }
@@ -81,8 +93,6 @@ enum CardDirectoryIndexStore {
         let newPairFronts = index.pairs.map { $0.front.lastPathComponent }
         let newChildNames = index.childDirectories.map(\.lastPathComponent).sorted()
 
-        // Skip the write when nothing changed — writing triggers the directory watcher,
-        // which would cause an infinite refresh loop on large directories.
         if let existing = try? Data(contentsOf: cacheURL),
            let existingCache = try? JSONDecoder().decode(CardDirectoryCacheFile.self, from: existing),
            existingCache.version == cacheVersion,

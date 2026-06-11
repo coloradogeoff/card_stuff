@@ -526,7 +526,7 @@ final class CardNamerViewModel {
         updateVisiblePairs()
 
         if let prevID, pairs.contains(where: { $0.id == prevID }) {
-            selectedPairID = prevID
+            if selectedPairID != prevID { selectedPairID = prevID }
         } else {
             selectedPairID = nil
         }
