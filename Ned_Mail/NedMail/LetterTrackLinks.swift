@@ -18,7 +18,7 @@ enum MessageBuilder {
         """
         Hello, and thank you for your business. I'm using a mail-tracking service called LetterTrackPro. You can track your order with this link: \(tinyURL)
 
-        If you have any questions, please don't hesitate to reach out.
+        If you have any questions, I'm happy to help.
         Geoff
         """
     }

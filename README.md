@@ -109,9 +109,9 @@ python psa_dutton.py install-cron
 ```
 
 Default behavior:
-- reads `~/Downloads/My Collection CSV - All.csv`
-- writes all downloaded images directly into `~/Desktop/Cards/PSA/`
-- tracks progress in `~/Desktop/Cards/PSA/.psa_dutton_state.json`
+- reads [`My Collection CSV - All.csv`](/Users/geoff/code/card_stuff/My%20Collection%20CSV%20-%20All.csv) from the repo root
+- writes all downloaded images directly into [`psa_cron_output/`](/Users/geoff/code/card_stuff/psa_cron_output)
+- tracks progress in [`/Users/geoff/code/card_stuff/.psa_dutton_state.json`](/Users/geoff/code/card_stuff/.psa_dutton_state.json)
 - installs a daily `7:00am` cron job that downloads `40` pending certs per run
 - waits `2` seconds between cards by default
 

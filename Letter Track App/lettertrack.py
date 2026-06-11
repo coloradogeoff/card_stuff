@@ -275,7 +275,7 @@ class TrackingApp(QWidget):
         message = (
             f"Hello, and thank you for your business. I'm using a mail-tracking service "
             f"called LetterTrackPro. You can track your order with this link: {tiny_url}\n\n"
-            f"If you have any questions, please don't hesitate to reach out.\n"
+            f"If you have any questions, I'm happy to help.\n"
             f"Geoff\n"
         )
         self.message_edit.setPlainText(message)

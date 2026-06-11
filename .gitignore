@@ -9,8 +9,8 @@ __pycache__/
 *.pyc
 *.app/
 .build/
+target/
 
 # Xcode personal IDE state
 xcuserdata/
 *.xcuserstate
-
