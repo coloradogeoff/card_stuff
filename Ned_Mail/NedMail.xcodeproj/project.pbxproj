@@ -18,6 +18,8 @@
 		B009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F009 /* Assets.xcassets */; };
 		B010 /* PostageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F011 /* PostageModels.swift */; };
 		B011 /* PostageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F012 /* PostageView.swift */; };
+		B012 /* EbayLabelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013 /* EbayLabelService.swift */; };
+		B013 /* EbayLabelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F014 /* EbayLabelView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +35,8 @@
 		F010 /* NedMail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NedMail.entitlements; sourceTree = "<group>"; };
 		F011 /* PostageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostageModels.swift; sourceTree = "<group>"; };
 		F012 /* PostageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostageView.swift; sourceTree = "<group>"; };
+		F013 /* EbayLabelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayLabelService.swift; sourceTree = "<group>"; };
+		F014 /* EbayLabelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayLabelView.swift; sourceTree = "<group>"; };
 		FAPP /* Ned Mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ned Mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -74,6 +78,8 @@
 				F006 /* EnvelopeModels.swift */,
 				F007 /* EnvelopePDF.swift */,
 				F008 /* EnvelopePrinter.swift */,
+				F013 /* EbayLabelService.swift */,
+				F014 /* EbayLabelView.swift */,
 				F011 /* PostageModels.swift */,
 				F012 /* PostageView.swift */,
 				F009 /* Assets.xcassets */,
@@ -159,6 +165,8 @@
 				B006 /* EnvelopeModels.swift in Sources */,
 				B007 /* EnvelopePDF.swift in Sources */,
 				B008 /* EnvelopePrinter.swift in Sources */,
+				B012 /* EbayLabelService.swift in Sources */,
+				B013 /* EbayLabelView.swift in Sources */,
 				B010 /* PostageModels.swift in Sources */,
 				B011 /* PostageView.swift in Sources */,
 			);

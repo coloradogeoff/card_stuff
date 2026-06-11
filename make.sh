@@ -19,14 +19,16 @@ build() {
     local scheme="$3"          # Xcode scheme name
     local product="$4"         # .app filename
     local build_dir="$5"       # temp DerivedData dir
+    local host_arch
+    host_arch="$(uname -m)"
 
     echo "→ Building $target_name (Release)…"
-    /usr/bin/arch -arm64 xcodebuild \
+    xcodebuild \
         -project "$project_path" \
         -scheme "$scheme" \
         -quiet \
         -configuration Release \
-        -destination "platform=macOS,arch=arm64" \
+        -destination "platform=macOS,arch=$host_arch" \
         -derivedDataPath "$build_dir" \
         build
 
