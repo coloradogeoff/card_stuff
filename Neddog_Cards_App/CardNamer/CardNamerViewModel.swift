@@ -36,10 +36,18 @@ final class CardNamerViewModel {
     }
     var pairsWithTraits: Set<String> = []
 
-    var selectedPairID: CardPair.ID? {
+    var selectedIDs: Set<CardPair.ID> = [] {
         didSet {
             proposedName = selectedPair?.baseName ?? ""
             updateSelectedTraits()
+        }
+    }
+
+    var selectedPairID: CardPair.ID? {
+        get { selectedIDs.count == 1 ? selectedIDs.first : nil }
+        set {
+            if let newValue { selectedIDs = [newValue] }
+            else { selectedIDs = [] }
         }
     }
 
@@ -87,6 +95,10 @@ final class CardNamerViewModel {
 
     var selectedPair: CardPair? {
         pairs.first { $0.id == selectedPairID }
+    }
+
+    var selectedPairs: [CardPair] {
+        visiblePairs.filter { selectedIDs.contains($0.id) }
     }
 
     var hasActiveFilter: Bool {
@@ -295,18 +307,23 @@ final class CardNamerViewModel {
     // MARK: - Delete card
 
     func deleteSelectedCard() {
-        guard let selectedPair else { return }
-        deleteCard(selectedPair)
+        deleteCards(selectedPairs)
     }
 
     func deleteCard(_ pair: CardPair) {
-        do {
-            try FileManager.default.trashItem(at: pair.front, resultingItemURL: nil)
-            try FileManager.default.trashItem(at: pair.back, resultingItemURL: nil)
-            metadataStore.removeMetadata(for: pair)
-            log("Moved to Trash: \(pair.front.lastPathComponent) + \(pair.back.lastPathComponent)")
-        } catch {
-            log("Delete failed: \(error.localizedDescription)")
+        deleteCards([pair])
+    }
+
+    func deleteCards(_ targets: [CardPair]) {
+        for pair in targets {
+            do {
+                try FileManager.default.trashItem(at: pair.front, resultingItemURL: nil)
+                try FileManager.default.trashItem(at: pair.back, resultingItemURL: nil)
+                metadataStore.removeMetadata(for: pair)
+                log("Moved to Trash: \(pair.front.lastPathComponent) + \(pair.back.lastPathComponent)")
+            } catch {
+                log("Delete failed: \(error.localizedDescription)")
+            }
         }
         refreshImages()
     }
@@ -328,6 +345,14 @@ final class CardNamerViewModel {
 
     func moveCardToCollection(_ pair: CardPair) {
         movePairs([pair], to: SettingsStore.shared.existingCardsDirectory)
+    }
+
+    func moveSelectedToSales() {
+        movePairs(selectedPairs, to: SettingsStore.shared.currentSalesDirectory)
+    }
+
+    func moveSelectedToCollection() {
+        movePairs(selectedPairs, to: SettingsStore.shared.existingCardsDirectory)
     }
 
     private func movePairs(_ targets: [CardPair], to dest: URL) {
@@ -489,12 +514,13 @@ final class CardNamerViewModel {
     }
 
     private func syncSelectionWithVisiblePairs() {
-        if let selectedPairID, visiblePairs.contains(where: { $0.id == selectedPairID }) {
-            return
+        let validIDs = selectedIDs.filter { id in visiblePairs.contains(where: { $0.id == id }) }
+        if !validIDs.isEmpty {
+            if validIDs != selectedIDs { selectedIDs = validIDs }
+        } else {
+            selectedIDs = visiblePairs.first.map { [$0.id] } ?? []
+            showingBack = false
         }
-
-        selectedPairID = visiblePairs.first?.id
-        showingBack = false
     }
 
     private func updateVisiblePairs() {
@@ -516,7 +542,7 @@ final class CardNamerViewModel {
     }
 
     private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool) {
-        let prevID = selectedPairID
+        let prevIDs = selectedIDs
         childDirectories = index.childDirectories
         pairs = index.pairs
         if pruneMetadata {
@@ -525,11 +551,8 @@ final class CardNamerViewModel {
         updatePairsWithTraits()
         updateVisiblePairs()
 
-        if let prevID, pairs.contains(where: { $0.id == prevID }) {
-            if selectedPairID != prevID { selectedPairID = prevID }
-        } else {
-            selectedPairID = nil
-        }
+        let stillValid = prevIDs.filter { id in pairs.contains(where: { $0.id == id }) }
+        if stillValid != selectedIDs { selectedIDs = stillValid }
 
         syncSelectionWithVisiblePairs()
     }

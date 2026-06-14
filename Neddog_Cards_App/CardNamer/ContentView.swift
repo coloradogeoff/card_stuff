@@ -66,6 +66,14 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showEbayResultsWindow)) { _ in
             openWindow(id: SceneID.ebayResults)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            let previewURL = appMode == .cardNamer ? cardVM.previewURL : ebayVM.previewURL
+            if let url = previewURL {
+                CardPreviewView.invalidateCache(for: url)
+            }
+            if appMode == .cardNamer { cardVM.previewRevision += 1 }
+            else { ebayVM.previewRevision += 1 }
+        }
     }
 
     @ViewBuilder
@@ -141,7 +149,7 @@ struct ContentView: View {
 
     private var canDeleteSelectedCard: Bool {
         if appMode == .cardNamer {
-            return cardVM.selectedPair != nil && !cardVM.isBusy
+            return !cardVM.selectedIDs.isEmpty && !cardVM.isBusy
         }
         return ebayVM.selectedPair != nil && !ebayVM.isBusy
     }
@@ -155,7 +163,8 @@ struct ContentView: View {
 
     private var activeDeleteMessage: String {
         if appMode == .cardNamer {
-            return "Move selected card to the Trash?"
+            let n = cardVM.selectedIDs.count
+            return n > 1 ? "Move \(n) cards to the Trash?" : "Move selected card to the Trash?"
         }
         return "Move selected card pair to the Trash?"
     }
@@ -369,7 +378,7 @@ struct CardNamerSidebar: View {
                 refreshImages: { vm.refreshImages() }
             )
             sourceHeader
-            List(selection: $vm.selectedPairID) {
+            List(selection: $vm.selectedIDs) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
                     Section {
                         if vm.parentDirectory != nil {
@@ -412,26 +421,76 @@ struct CardNamerSidebar: View {
                         }
                         .tag(pair.id)
                         .contextMenu {
-                            Button {
-                                vm.moveCardToSales(pair)
-                            } label: {
-                                Label("Move to Sales", systemImage: "cart")
-                            }
-                            .disabled(vm.isBusy)
+                            let isMulti = vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id)
+                            let count = vm.selectedIDs.count
 
-                            Button {
-                                vm.moveCardToCollection(pair)
-                            } label: {
-                                Label("Move to Collection", systemImage: "archivebox")
-                            }
-                            .disabled(vm.isBusy)
+                            if isMulti {
+                                Button {
+                                    vm.moveSelectedToSales()
+                                } label: {
+                                    Label("Move \(count) to Sales", systemImage: "cart")
+                                }
+                                .disabled(vm.isBusy)
 
-                            Divider()
+                                Button {
+                                    vm.moveSelectedToCollection()
+                                } label: {
+                                    Label("Move \(count) to Collection", systemImage: "archivebox")
+                                }
+                                .disabled(vm.isBusy)
 
-                            Button(role: .destructive) {
-                                vm.deleteCard(pair)
-                            } label: {
-                                Label("Delete Card", systemImage: "trash")
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    vm.deleteCards(vm.selectedPairs)
+                                } label: {
+                                    Label("Delete \(count) Cards", systemImage: "trash")
+                                }
+                            } else {
+                                Button {
+                                    vm.moveCardToSales(pair)
+                                } label: {
+                                    Label("Move to Sales", systemImage: "cart")
+                                }
+                                .disabled(vm.isBusy)
+
+                                Button {
+                                    vm.moveCardToCollection(pair)
+                                } label: {
+                                    Label("Move to Collection", systemImage: "archivebox")
+                                }
+                                .disabled(vm.isBusy)
+
+                                Divider()
+
+                                Button {
+                                    if let url = vm.previewURL,
+                                       let gcURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.lemkesoft.graphicconverter12") {
+                                        NSWorkspace.shared.open([url], withApplicationAt: gcURL, configuration: NSWorkspace.OpenConfiguration())
+                                    }
+                                } label: {
+                                    Label("Open in GraphicConverter", systemImage: "photo")
+                                }
+                                .disabled(vm.selectedPair?.id != pair.id)
+
+                                Button {
+                                    if let url = vm.previewURL,
+                                       let image = NSImage(contentsOf: url) {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.writeObjects([image])
+                                    }
+                                } label: {
+                                    Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                                }
+                                .disabled(vm.selectedPair?.id != pair.id)
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    vm.deleteCard(pair)
+                                } label: {
+                                    Label("Delete Card", systemImage: "trash")
+                                }
                             }
                         }
                     }
