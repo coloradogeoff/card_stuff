@@ -10,7 +10,6 @@
 		B001 /* NedMailApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F001 /* NedMailApp.swift */; };
 		B002 /* LetterTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F002 /* LetterTrackView.swift */; };
 		B003 /* LetterTrackLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = F003 /* LetterTrackLinks.swift */; };
-		B004 /* TinyURLService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F004 /* TinyURLService.swift */; };
 		B005 /* EnvelopePrintView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F005 /* EnvelopePrintView.swift */; };
 		B006 /* EnvelopeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F006 /* EnvelopeModels.swift */; };
 		B007 /* EnvelopePDF.swift in Sources */ = {isa = PBXBuildFile; fileRef = F007 /* EnvelopePDF.swift */; };
@@ -26,7 +25,6 @@
 		F001 /* NedMailApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NedMailApp.swift; sourceTree = "<group>"; };
 		F002 /* LetterTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LetterTrackView.swift; sourceTree = "<group>"; };
 		F003 /* LetterTrackLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LetterTrackLinks.swift; sourceTree = "<group>"; };
-		F004 /* TinyURLService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TinyURLService.swift; sourceTree = "<group>"; };
 		F005 /* EnvelopePrintView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopePrintView.swift; sourceTree = "<group>"; };
 		F006 /* EnvelopeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopeModels.swift; sourceTree = "<group>"; };
 		F007 /* EnvelopePDF.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopePDF.swift; sourceTree = "<group>"; };
@@ -73,8 +71,7 @@
 				F001 /* NedMailApp.swift */,
 				F002 /* LetterTrackView.swift */,
 				F003 /* LetterTrackLinks.swift */,
-				F004 /* TinyURLService.swift */,
-				F005 /* EnvelopePrintView.swift */,
+					F005 /* EnvelopePrintView.swift */,
 				F006 /* EnvelopeModels.swift */,
 				F007 /* EnvelopePDF.swift */,
 				F008 /* EnvelopePrinter.swift */,
@@ -160,8 +157,7 @@
 				B001 /* NedMailApp.swift in Sources */,
 				B002 /* LetterTrackView.swift in Sources */,
 				B003 /* LetterTrackLinks.swift in Sources */,
-				B004 /* TinyURLService.swift in Sources */,
-				B005 /* EnvelopePrintView.swift in Sources */,
+					B005 /* EnvelopePrintView.swift in Sources */,
 				B006 /* EnvelopeModels.swift in Sources */,
 				B007 /* EnvelopePDF.swift in Sources */,
 				B008 /* EnvelopePrinter.swift in Sources */,

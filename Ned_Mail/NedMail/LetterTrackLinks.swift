@@ -9,14 +9,16 @@ enum LetterTrackLinks {
         guard !trimmed.isEmpty,
               let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         else { return nil }
-        return URL(string: "https://www.lettertrackpro.com/uspstracking/?TrackingNumber=\(encoded)")
+        return URL(string: "https://neddog.com/t/\(encoded)")
     }
 }
 
 enum MessageBuilder {
     static func make(tinyURL: String) -> String {
         """
-        Hello, and thank you for your business. I'm using a mail-tracking service called LetterTrackPro. You can track your order with this link: \(tinyURL)
+        Hello, and thank you for your business. Your order has been shipped via US First Class Mail. I've included a USPS Informed Visibility tracking link so you can follow its progress through the postal system:
+
+        \(tinyURL)
 
         If you have any questions, I'm happy to help.
         Geoff
