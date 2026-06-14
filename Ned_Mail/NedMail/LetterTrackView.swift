@@ -3,15 +3,14 @@ import SwiftUI
 
 struct LetterTrackView: View {
     @State private var trackingNumber: String = ""
-    @State private var tinyURL: String = ""
+    @State private var trackingURL: String = ""
     @State private var message: String = ""
-    @State private var isWorking: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             quickLinks
             trackingInput
-            tinyLinkSection
+            trackingLinkSection
             messageSection
         }
         .padding(16)
@@ -37,24 +36,20 @@ struct LetterTrackView: View {
             HStack(spacing: 8) {
                 TextField("Enter USPS tracking number…", text: $trackingNumber)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        Task { await generateMessage() }
-                    }
+                    .onSubmit { generateMessage() }
                 Button("Clear", action: clearAll)
             }
             .padding(.vertical, 4)
         }
     }
 
-    private var tinyLinkSection: some View {
-        GroupBox("Short Link") {
+    private var trackingLinkSection: some View {
+        GroupBox("Tracking Link") {
             HStack(spacing: 8) {
-                Button("Generate TinyURL") {
-                    Task { await generateTinyURL() }
+                Button("Generate Tracking URL") {
+                    generateTrackingURL()
                 }
-                .disabled(isWorking)
-
-                TextField("Shortened URL will appear here", text: $tinyURL)
+                TextField("Tracking URL will appear here", text: $trackingURL)
                     .textFieldStyle(.roundedBorder)
                     .disabled(true)
             }
@@ -69,18 +64,14 @@ struct LetterTrackView: View {
                     .font(.body)
                     .frame(minHeight: 140)
 
-                Button(action: { Task { await generateMessage() } }) {
-                    Label(
-                        isWorking ? "Working…" : "Generate Message",
-                        systemImage: "wand.and.stars"
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                Button(action: generateMessage) {
+                    Label("Generate Message", systemImage: "wand.and.stars")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(isWorking)
 
                 Button("Copy to Clipboard", action: copyMessage)
             }
@@ -90,49 +81,29 @@ struct LetterTrackView: View {
 
     // MARK: - Actions
 
-    private func generateTinyURL() async {
+    private func generateTrackingURL() {
         let trimmed = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            tinyURL = ""
+        guard !trimmed.isEmpty, let url = LetterTrackLinks.trackingURL(for: trimmed) else {
+            trackingURL = ""
             return
         }
-        guard let url = LetterTrackLinks.trackingURL(for: trimmed) else { return }
-
-        isWorking = true
-        defer { isWorking = false }
-
-        do {
-            tinyURL = try await TinyURLService.shorten(url)
-        } catch {
-            tinyURL = "Error: \(error.localizedDescription)"
-        }
+        trackingURL = url.absoluteString
     }
 
-    private func generateMessage() async {
+    private func generateMessage() {
         let trimmed = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        guard !trimmed.isEmpty, let url = LetterTrackLinks.trackingURL(for: trimmed) else {
             message = "Please enter a tracking number."
             return
         }
-        guard let url = LetterTrackLinks.trackingURL(for: trimmed) else { return }
-
-        isWorking = true
-        defer { isWorking = false }
-
-        do {
-            let short = try await TinyURLService.shorten(url)
-            tinyURL = short
-            let text = MessageBuilder.make(tinyURL: short)
-            message = text
-            copyToPasteboard(text)
-        } catch {
-            message = "Error generating TinyURL: \(error.localizedDescription)"
-        }
+        trackingURL = url.absoluteString
+        message = MessageBuilder.make(tinyURL: trackingURL)
+        copyToPasteboard(message)
     }
 
     private func clearAll() {
         trackingNumber = ""
-        tinyURL = ""
+        trackingURL = ""
         message = ""
     }
 
