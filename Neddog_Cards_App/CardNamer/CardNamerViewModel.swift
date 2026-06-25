@@ -10,12 +10,12 @@ final class CardNamerViewModel {
     var childDirectories: [URL] = []
     var pairs: [CardPair] = []
     var visiblePairs: [CardPair] = []
-    var filterText: String = "" {
-        didSet {
-            updateVisiblePairs()
-            syncSelectionWithVisiblePairs()
-        }
-    }
+    private var pairsByID: [CardPair.ID: CardPair] = [:]
+    var filterText: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterPlayer: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterYear: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterSet: String = "" { didSet { scheduleFilterUpdate() } }
+    private var filterDebounceTask: Task<Void, Never>?
     var sortField: CardPairSortField = .name {
         didSet {
             updateVisiblePairs()
@@ -68,6 +68,7 @@ final class CardNamerViewModel {
     private var debounceTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    private var pendingSelectionID: CardPair.ID?
 
     init() {
         startWatching()
@@ -94,7 +95,8 @@ final class CardNamerViewModel {
     }
 
     var selectedPair: CardPair? {
-        pairs.first { $0.id == selectedPairID }
+        guard let selectedPairID else { return nil }
+        return pairsByID[selectedPairID]
     }
 
     var selectedPairs: [CardPair] {
@@ -102,7 +104,7 @@ final class CardNamerViewModel {
     }
 
     var hasActiveFilter: Bool {
-        !filterText.isEmpty || !selectedTraitFilters.isEmpty
+        !filterText.isEmpty || !filterPlayer.isEmpty || !filterYear.isEmpty || !filterSet.isEmpty || !selectedTraitFilters.isEmpty
     }
 
     var previewURL: URL? {
@@ -149,11 +151,16 @@ final class CardNamerViewModel {
 // MARK: - Image loading
 
     private func filteredAndSortedPairs() -> [CardPair] {
-        let matchingPairs: [CardPair]
-        if filterText.isEmpty {
-            matchingPairs = pairs
-        } else {
-            matchingPairs = pairs.filter { $0.displayName.contains(filterText) }
+        let text = filterText.lowercased()
+        let player = filterPlayer.lowercased()
+        let year = filterYear
+        let set = filterSet.lowercased()
+
+        let matchingPairs = pairs.filter { pair in
+            (text.isEmpty   || pair.displayName.lowercased().contains(text)) &&
+            (player.isEmpty || pair.parsedPlayer.contains(player)) &&
+            (year.isEmpty   || pair.parsedYear.contains(year)) &&
+            (set.isEmpty    || pair.parsedSetText.contains(set))
         }
 
         let metadataMatchingPairs = matchingPairs.filter {
@@ -167,6 +174,16 @@ final class CardNamerViewModel {
             case .descending:
                 return sortLess(rhs, lhs)
             }
+        }
+    }
+
+    private func scheduleFilterUpdate() {
+        filterDebounceTask?.cancel()
+        filterDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            self.updateVisiblePairs()
+            self.syncSelectionWithVisiblePairs()
         }
     }
 
@@ -298,6 +315,7 @@ final class CardNamerViewModel {
             metadataStore.moveMetadata(from: pair.baseName, to: sanitized)
             log("Renamed to \(newFront.lastPathComponent) and \(newBack.lastPathComponent)")
             proposedName = ""
+            pendingSelectionID = "\(newFront.standardized.path)|\(newBack.standardized.path)"
             refreshImages()
         } catch {
             log("Rename failed: \(error.localizedDescription)")
@@ -490,6 +508,9 @@ final class CardNamerViewModel {
 
     func clearFilters() {
         filterText = ""
+        filterPlayer = ""
+        filterYear = ""
+        filterSet = ""
         selectedTraitFilters = []
     }
 
@@ -545,16 +566,21 @@ final class CardNamerViewModel {
         let prevIDs = selectedIDs
         childDirectories = index.childDirectories
         pairs = index.pairs
+        pairsByID = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0) })
         if pruneMetadata {
             metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
         }
         updatePairsWithTraits()
         updateVisiblePairs()
 
-        let stillValid = prevIDs.filter { id in pairs.contains(where: { $0.id == id }) }
-        if stillValid != selectedIDs { selectedIDs = stillValid }
-
-        syncSelectionWithVisiblePairs()
+        if let pending = pendingSelectionID, pairsByID[pending] != nil {
+            pendingSelectionID = nil
+            selectedIDs = [pending]
+        } else {
+            let stillValid = prevIDs.filter { pairsByID[$0] != nil }
+            if stillValid != selectedIDs { selectedIDs = stillValid }
+            syncSelectionWithVisiblePairs()
+        }
     }
 
     private func startWatching() {

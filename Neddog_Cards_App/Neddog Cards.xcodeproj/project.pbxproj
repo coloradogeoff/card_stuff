@@ -23,6 +23,8 @@
 		B014 /* CardDirectoryIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F014 /* CardDirectoryIndexStore.swift */; };
 		B015 /* ImageEditingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F015 /* ImageEditingService.swift */; };
 		B016 /* PSADownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016 /* PSADownloadService.swift */; };
+		B017 /* BasketballRookieLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F017 /* BasketballRookieLookup.swift */; };
+		B018 /* basketball-rookies.csv in Resources */ = {isa = PBXBuildFile; fileRef = F018 /* basketball-rookies.csv */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +44,8 @@
 		F014 /* CardDirectoryIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDirectoryIndexStore.swift; sourceTree = "<group>"; };
 		F015 /* ImageEditingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEditingService.swift; sourceTree = "<group>"; };
 		F016 /* PSADownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSADownloadService.swift; sourceTree = "<group>"; };
+		F017 /* BasketballRookieLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BasketballRookieLookup.swift; sourceTree = "<group>"; };
+		F018 /* basketball-rookies.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = "basketball-rookies.csv"; sourceTree = "<group>"; };
 		FAPP /* Neddog Cards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Neddog Cards.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -90,6 +94,8 @@
 				F014 /* CardDirectoryIndexStore.swift */,
 				F015 /* ImageEditingService.swift */,
 				F016 /* PSADownloadService.swift */,
+				F017 /* BasketballRookieLookup.swift */,
+				F018 /* basketball-rookies.csv */,
 				F012 /* Assets.xcassets */,
 			);
 			path = CardNamer;
@@ -154,6 +160,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B012 /* Assets.xcassets in Resources */,
+				B018 /* basketball-rookies.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -179,6 +186,7 @@
 				B014 /* CardDirectoryIndexStore.swift in Sources */,
 				B015 /* ImageEditingService.swift in Sources */,
 				B016 /* PSADownloadService.swift in Sources */,
+				B017 /* BasketballRookieLookup.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

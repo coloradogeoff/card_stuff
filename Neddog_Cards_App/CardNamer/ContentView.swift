@@ -368,6 +368,7 @@ struct SidebarDirectoryMenu: View {
 
 struct CardNamerSidebar: View {
     @Bindable var vm: CardNamerViewModel
+    @State private var pendingDeletePair: CardPair?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -421,82 +422,83 @@ struct CardNamerSidebar: View {
                         }
                         .tag(pair.id)
                         .contextMenu {
-                            let isMulti = vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id)
-                            let count = vm.selectedIDs.count
-
-                            if isMulti {
-                                Button {
+                            Button {
+                                // If this pair is part of a multi-selection, move all selected; else just this pair
+                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
                                     vm.moveSelectedToSales()
-                                } label: {
-                                    Label("Move \(count) to Sales", systemImage: "cart")
-                                }
-                                .disabled(vm.isBusy)
-
-                                Button {
-                                    vm.moveSelectedToCollection()
-                                } label: {
-                                    Label("Move \(count) to Collection", systemImage: "archivebox")
-                                }
-                                .disabled(vm.isBusy)
-
-                                Divider()
-
-                                Button(role: .destructive) {
-                                    vm.deleteCards(vm.selectedPairs)
-                                } label: {
-                                    Label("Delete \(count) Cards", systemImage: "trash")
-                                }
-                            } else {
-                                Button {
+                                } else {
                                     vm.moveCardToSales(pair)
-                                } label: {
-                                    Label("Move to Sales", systemImage: "cart")
                                 }
-                                .disabled(vm.isBusy)
+                            } label: {
+                                Label("Move to Sales", systemImage: "cart")
+                            }
+                            .disabled(vm.isBusy)
 
-                                Button {
+                            Button {
+                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                                    vm.moveSelectedToCollection()
+                                } else {
                                     vm.moveCardToCollection(pair)
-                                } label: {
-                                    Label("Move to Collection", systemImage: "archivebox")
                                 }
-                                .disabled(vm.isBusy)
+                            } label: {
+                                Label("Move to Collection", systemImage: "archivebox")
+                            }
+                            .disabled(vm.isBusy)
 
-                                Divider()
+                            Divider()
 
-                                Button {
-                                    if let url = vm.previewURL,
-                                       let gcURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.lemkesoft.graphicconverter12") {
-                                        NSWorkspace.shared.open([url], withApplicationAt: gcURL, configuration: NSWorkspace.OpenConfiguration())
-                                    }
-                                } label: {
-                                    Label("Open in GraphicConverter", systemImage: "photo")
+                            Button {
+                                if let gcURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.lemkesoft.graphicconverter12") {
+                                    NSWorkspace.shared.open([pair.front], withApplicationAt: gcURL, configuration: NSWorkspace.OpenConfiguration())
                                 }
-                                .disabled(vm.selectedPair?.id != pair.id)
+                            } label: {
+                                Label("Open in GraphicConverter", systemImage: "photo")
+                            }
 
-                                Button {
-                                    if let url = vm.previewURL,
-                                       let image = NSImage(contentsOf: url) {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.writeObjects([image])
-                                    }
-                                } label: {
-                                    Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                            Button {
+                                if let image = NSImage(contentsOf: pair.front) {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.writeObjects([image])
                                 }
-                                .disabled(vm.selectedPair?.id != pair.id)
+                            } label: {
+                                Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                            }
 
-                                Divider()
+                            Divider()
 
-                                Button(role: .destructive) {
-                                    vm.deleteCard(pair)
-                                } label: {
-                                    Label("Delete Card", systemImage: "trash")
-                                }
+                            Button(role: .destructive) {
+                                pendingDeletePair = pair
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
                         }
                     }
                 }
             }
             .listStyle(.sidebar)
+            .confirmationDialog(
+                pendingDeletePair.map { pair in
+                    vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id)
+                        ? "Delete \(vm.selectedIDs.count) cards?"
+                        : "Delete \(pair.displayName)?"
+                } ?? "",
+                isPresented: Binding(get: { pendingDeletePair != nil }, set: { if !$0 { pendingDeletePair = nil } }),
+                titleVisibility: .visible
+            ) {
+                if let pair = pendingDeletePair {
+                    Button("Move to Trash", role: .destructive) {
+                        if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                            vm.deleteCards(vm.selectedPairs)
+                        } else {
+                            vm.deleteCard(pair)
+                        }
+                        pendingDeletePair = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingDeletePair = nil }
+            } message: {
+                Text("Both the front and back image files will be moved to the Trash.")
+            }
 
             if !vm.visiblePairs.isEmpty && !vm.isExistingCardsDirectory {
                 Divider()
@@ -551,8 +553,19 @@ struct CardNamerSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
+            TextField("Search filenames", text: $vm.filterText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .padding(.top, 6)
             HStack(spacing: 6) {
-                TextField("Filter filenames (case-sensitive)", text: $vm.filterText)
+                TextField("Player", text: $vm.filterPlayer)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                TextField("Year", text: $vm.filterYear)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .frame(maxWidth: 56)
+                TextField("Set / Series", text: $vm.filterSet)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                 Button("Clear") {
@@ -560,7 +573,7 @@ struct CardNamerSidebar: View {
                 }
                 .disabled(!vm.hasActiveFilter)
             }
-            .padding(.top, 6)
+            .padding(.top, 4)
             HStack(spacing: 8) {
                 Picker("Sort By", selection: $vm.sortField) {
                     ForEach(CardPairSortField.allCases) { field in
@@ -633,6 +646,25 @@ struct CardNamerDetail: View {
                                 .background(.black.opacity(0.45))
                                 .clipShape(Capsule())
                                 .padding(.bottom, Layout.previewBadgeBottomPadding)
+                        }
+                    }
+                    .contextMenu {
+                        if let url = vm.previewURL {
+                            Button {
+                                if let image = NSImage(contentsOf: url) {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.writeObjects([image])
+                                }
+                            } label: {
+                                Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                            }
+                            Button {
+                                if let gcURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.lemkesoft.graphicconverter12") {
+                                    NSWorkspace.shared.open([url], withApplicationAt: gcURL, configuration: NSWorkspace.OpenConfiguration())
+                                }
+                            } label: {
+                                Label("Open in GraphicConverter", systemImage: "photo")
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -857,16 +889,27 @@ struct EbayTitlesSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
+            TextField("Search filenames", text: $vm.filterText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .padding(.top, 6)
             HStack(spacing: 6) {
-                TextField("Filter filenames (case-sensitive)", text: $vm.filterText)
+                TextField("Player", text: $vm.filterPlayer)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                TextField("Year", text: $vm.filterYear)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .frame(maxWidth: 56)
+                TextField("Set / Series", text: $vm.filterSet)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                 Button("Clear") {
                     vm.clearFilters()
                 }
-                .disabled(vm.filterText.isEmpty && vm.selectedTraitFilters.isEmpty)
+                .disabled(!vm.hasActiveFilter)
             }
-            .padding(.top, 6)
+            .padding(.top, 4)
             HStack(spacing: 8) {
                 Picker("Sort By", selection: $vm.sortField) {
                     ForEach(CardPairSortField.allCases) { field in
@@ -963,6 +1006,21 @@ struct EbayTitlesDetail: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Supplemental Rules").font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $vm.supplementalRules)
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .padding(5)
+                    .frame(minHeight: 58, maxHeight: 90)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
+                Text("Saved automatically and added to every generated-title prompt.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
             CardTraitEditor(
                 title: "Traits",
                 traits: vm.selectedTraits,
@@ -1033,6 +1091,11 @@ struct EbayTitlesResultsWindow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Descr to Clip") {
+                    EbayListingDescription.copyToPasteboard()
+                }
+                .help("Copy the formatted eBay description")
+
                 Button("Date to Clip") {
                     let formatter = DateFormatter()
                     formatter.dateFormat = "yyyyMMdd"
@@ -1059,46 +1122,117 @@ struct EbayTitlesResultsWindow: View {
             } else {
                 ScrollView {
                     VStack(spacing: 8) {
-                        ForEach(vm.results) { result in
-                            HStack(alignment: .top, spacing: 8) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(result.frontName)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                    Text(result.title)
-                                        .font(.system(size: 13))
-                                        .textSelection(.enabled)
-                                }
-                                Spacer()
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(result.title, forType: .string)
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Copy title")
-
-                                Button {
-                                    if let url = CardNameBuilder.ebayURL(fromBaseName: result.title) {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                } label: {
-                                    Image(systemName: "magnifyingglass")
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Search eBay for this title")
+                        ForEach($vm.results) { $result in
+                            EbayTitleResultRow(result: $result) {
+                                vm.saveEditedTitles()
                             }
-                            .padding(10)
-                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
             }
         }
         .padding(16)
+    }
+}
+
+private struct EbayTitleResultRow: View {
+    @Binding var result: EbayTitleResult
+    let save: () -> Void
+
+    @FocusState private var titleIsFocused: Bool
+    @State private var lastSavedTitle: String
+
+    init(result: Binding<EbayTitleResult>, save: @escaping () -> Void) {
+        _result = result
+        self.save = save
+        _lastSavedTitle = State(initialValue: result.wrappedValue.title)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.frontName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                TextField("Title", text: $result.title)
+                    .font(.system(size: 13))
+                    .textFieldStyle(.plain)
+                    .focused($titleIsFocused)
+                    .onSubmit {
+                        commitTitleChange()
+                    }
+                    .onChange(of: titleIsFocused) { _, isFocused in
+                        if !isFocused {
+                            commitTitleChange()
+                        }
+                    }
+            }
+            Spacer()
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.title, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy title")
+
+            Button {
+                if let url = CardNameBuilder.ebayURL(fromBaseName: result.title) {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .buttonStyle(.borderless)
+            .help("Search eBay for this title")
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func commitTitleChange() {
+        guard result.title != lastSavedTitle else { return }
+        save()
+        lastSavedTitle = result.title
+    }
+}
+
+private enum EbayListingDescription {
+    static let html = """
+    <div style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #000000; line-height: 1.4;">
+      <p><strong>SHIPPING</strong>: I use a PWE (Plain White Envelope) to send 1 to 8 cards or philatelic items valued under $20. I typically use postage stamps and a letter-tracking service called LetterTrackPro, which provides a tracking number after the item is posted with the U.S. Postal Service. For items thicker than a standard card or weighing more than 3 ounces, I ship via USPS Ground Advantage for $5.</p>
+      <ul>
+        <li>$1 for the first item; 35 cents each additional item up to $5.</li>
+        <li>If you are charged more than $5, <u>I will refund the overpayment</u>.</li>
+      </ul>
+      <p><strong>INTERNATIONAL</strong>: I offer very reasonable international shipping rates. The low price is possible because I send cards as letters through the postal service without tracking, in plain white envelopes.</p>
+      <p><strong>SAVE $$$</strong>: I combine shipping whenever possible. Check out my other lots.</p>
+      <p><strong>QUESTIONS</strong>: Welcomed!</p>
+    </div>
+    """
+
+    static let plainText = """
+    SHIPPING: I use a PWE (Plain White Envelope) to send 1 to 8 cards or philatelic items valued under $20. I typically use postage stamps and a letter-tracking service called LetterTrackPro, which provides a tracking number after the item is posted with the U.S. Postal Service. For items thicker than a standard card or weighing more than 3 ounces, I ship via USPS Ground Advantage for $5.
+
+    • $1 for the first item; 35 cents each additional item up to $5.
+    • If you are charged more than $5, I will refund the overpayment.
+
+    INTERNATIONAL: I offer very reasonable international shipping rates. The low price is possible because I send cards as letters through the postal service without tracking, in plain white envelopes.
+
+    SAVE $$$: I combine shipping whenever possible. Check out my other lots.
+
+    QUESTIONS: Welcomed!
+    """
+
+    static func copyToPasteboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.declareTypes([.html, .string], owner: nil)
+        pasteboard.setString(html, forType: .html)
+        pasteboard.setString(plainText, forType: .string)
     }
 }
 
