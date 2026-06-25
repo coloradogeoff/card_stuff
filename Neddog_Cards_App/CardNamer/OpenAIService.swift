@@ -3,15 +3,17 @@ import AppKit
 
 enum OpenAIError: Error, LocalizedError {
     case noAPIKey
-    case badResponse(Int)
-    case noContent
+    case badResponse(Int, String)
+    case noContent(String)
     case jsonParseFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .noAPIKey: return "No OpenAI API key found. Add it in Settings."
-        case .badResponse(let code): return "OpenAI returned HTTP \(code)."
-        case .noContent: return "OpenAI returned an empty response."
+        case .badResponse(let code, let detail):
+            return detail.isEmpty ? "OpenAI returned HTTP \(code)." : "OpenAI returned HTTP \(code): \(detail)"
+        case .noContent(let detail):
+            return detail.isEmpty ? "OpenAI returned an empty response." : "OpenAI returned an empty response (\(detail))."
         case .jsonParseFailed(let raw): return "Could not parse response: \(raw.prefix(200))"
         }
     }
@@ -66,7 +68,8 @@ enum OpenAIService {
         backURL: URL,
         category: EbayCategory,
         setOverride: String?,
-        varietyOverride: String?
+        varietyOverride: String?,
+        supplementalRules: String?
     ) async throws -> String {
         guard let key = loadAPIKey() else { throw OpenAIError.noAPIKey }
 
@@ -81,6 +84,13 @@ enum OpenAIService {
         }
         if let v = varietyOverride, !v.isEmpty {
             system += "Variety override — use exactly: \(v)\n"
+        }
+        if let rules = supplementalRules, !rules.isEmpty {
+            system += """
+
+            Supplemental rules supplied by the user:
+            \(rules)
+            """
         }
 
         let body: [String: Any] = [
@@ -107,13 +117,13 @@ enum OpenAIService {
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw OpenAIError.badResponse(code) }
+        guard code == 200 else { throw OpenAIError.badResponse(code, apiErrorMessage(from: data)) }
 
         guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = outer["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String else {
-            throw OpenAIError.noContent
+            throw OpenAIError.noContent(responseDetail(from: data))
         }
 
         // Parse "Title: ..." from response
@@ -160,9 +170,30 @@ enum OpenAIService {
             system += "\nOCR back bottom text (often includes the card year):\n\(ocrBackBottom)\n"
         }
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
-            "max_completion_tokens": 400,
+            // Reasoning tokens count against this limit on GPT-5 models. A limit
+            // of 400 can be exhausted before any visible JSON is emitted.
+            "max_completion_tokens": 1_200,
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "card_details",
+                    "strict": true,
+                    "schema": [
+                        "type": "object",
+                        "properties": [
+                            "year": ["type": "string"],
+                            "last_name": ["type": "string"],
+                            "manufacturer": ["type": "string"],
+                            "series": ["type": "string"],
+                            "number": ["type": "string"],
+                        ],
+                        "required": ["year", "last_name", "manufacturer", "series", "number"],
+                        "additionalProperties": false,
+                    ],
+                ],
+            ],
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": [
@@ -175,6 +206,9 @@ enum OpenAIService {
                 ]],
             ],
         ]
+        if model.lowercased().hasPrefix("gpt-5") {
+            body["reasoning_effort"] = "low"
+        }
 
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         req.httpMethod = "POST"
@@ -184,7 +218,7 @@ enum OpenAIService {
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200 else { throw OpenAIError.badResponse(code) }
+        guard code == 200 else { throw OpenAIError.badResponse(code, apiErrorMessage(from: data)) }
 
         return try parseResponse(data: data)
     }
@@ -196,10 +230,13 @@ enum OpenAIService {
               let choices = outer["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String else {
-            throw OpenAIError.noContent
+            throw OpenAIError.noContent(responseDetail(from: data))
         }
 
         let cleaned = stripCodeFences(content)
+        guard !cleaned.isEmpty else {
+            throw OpenAIError.noContent(responseDetail(from: data))
+        }
         guard let jsonData = cleaned.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             throw OpenAIError.jsonParseFailed(cleaned)
@@ -221,6 +258,30 @@ enum OpenAIService {
             s = s.trimmingCharacters(in: .init(charactersIn: "`")).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return s
+    }
+
+    private static func apiErrorMessage(from data: Data) -> String {
+        if let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = outer["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            return message
+        }
+        return String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(500)
+            .description ?? ""
+    }
+
+    private static func responseDetail(from data: Data) -> String {
+        guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = outer["choices"] as? [[String: Any]],
+              let choice = choices.first else {
+            return ""
+        }
+        if let finishReason = choice["finish_reason"] as? String {
+            return "finish reason: \(finishReason)"
+        }
+        return ""
     }
 
     // MARK: - Image encoding

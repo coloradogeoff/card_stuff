@@ -3,9 +3,20 @@ import Foundation
 struct CardPair: Identifiable, Equatable {
     let front: URL
     let back: URL
+    let id: String
+    let modificationDate: Date
 
-    var id: String {
-        "\(front.standardized.path)|\(back.standardized.path)"
+    init(front: URL, back: URL, modificationDate: Date? = nil) {
+        self.front = front
+        self.back = back
+        self.id = "\(front.standardized.path)|\(back.standardized.path)"
+        if let modificationDate {
+            self.modificationDate = modificationDate
+        } else {
+            let fd = (try? front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let bd = (try? back.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            self.modificationDate = max(fd, bd)
+        }
     }
 
     var displayName: String {
@@ -20,11 +31,24 @@ struct CardPair: Identifiable, Equatable {
         return stem
     }
 
-    var modificationDate: Date {
-        let frontDate = (try? front.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-        let backDate = (try? back.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-        return max(frontDate, backDate)
+    // Filename format: YYYY-Player-Manufacturer-Series-...-Number
+    var parsedYear: String {
+        let first = baseName.split(separator: "-", maxSplits: 1).first.map(String.init) ?? ""
+        return first.count == 4 && first.allSatisfy(\.isNumber) ? first : ""
     }
+
+    var parsedPlayer: String {
+        let parts = baseName.split(separator: "-")
+        guard parts.count >= 2 else { return baseName.lowercased() }
+        return String(parts[1]).lowercased()
+    }
+
+    var parsedSetText: String {
+        let parts = baseName.split(separator: "-")
+        guard parts.count >= 3 else { return "" }
+        return parts[2...].joined(separator: " ").lowercased()
+    }
+
 }
 
 enum CardPairSortField: String, CaseIterable, Identifiable {

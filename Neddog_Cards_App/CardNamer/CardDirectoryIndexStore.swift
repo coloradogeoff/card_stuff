@@ -38,10 +38,13 @@ enum CardDirectoryIndexStore {
             let cache = try decoder.decode(CardDirectoryCacheFile.self, from: data)
             guard cache.version == cacheVersion else { return nil }
 
-            let pairs = cache.pairs.map {
-                CardPair(
-                    front: directoryURL.appendingPathComponent($0.front),
-                    back: directoryURL.appendingPathComponent($0.back)
+            let pairs = cache.pairs.map { p -> CardPair in
+                let fd = p.frontModificationDate ?? .distantPast
+                let bd = p.backModificationDate ?? .distantPast
+                return CardPair(
+                    front: directoryURL.appendingPathComponent(p.front),
+                    back: directoryURL.appendingPathComponent(p.back),
+                    modificationDate: max(fd, bd)
                 )
             }
             let childDirectories = cache.childDirectoryNames.map {
@@ -131,25 +134,7 @@ enum CardDirectoryIndexStore {
     }
 
     static func naturalSortLess(_ a: String, _ b: String) -> Bool {
-        let re = try? NSRegularExpression(pattern: #"(\d+)|(\D+)"#)
-        func tokens(_ s: String) -> [(Int?, String)] {
-            let range = NSRange(s.startIndex..., in: s)
-            return (re?.matches(in: s, range: range) ?? []).compactMap { m -> (Int?, String)? in
-                guard let r = Range(m.range, in: s) else { return nil }
-                let t = String(s[r])
-                return (Int(t), t)
-            }
-        }
-        let ta = tokens(a), tb = tokens(b)
-        for i in 0..<min(ta.count, tb.count) {
-            let (ai, as_) = ta[i]; let (bi, bs) = tb[i]
-            if let ai, let bi {
-                if ai != bi { return ai < bi }
-            } else if as_ != bs {
-                return as_ < bs
-            }
-        }
-        return ta.count < tb.count
+        a.localizedStandardCompare(b) == .orderedAscending
     }
 
     private static func buildPairs(from files: [URL]) -> [CardPair] {

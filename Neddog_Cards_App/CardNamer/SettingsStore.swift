@@ -35,6 +35,11 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: "psa_api_token") }
     }
 
+    var ebaySupplementalRules: String {
+        get { defaults.string(forKey: "ebay_supplemental_rules") ?? "" }
+        set { defaults.set(newValue, forKey: "ebay_supplemental_rules") }
+    }
+
     var quickDirectories: [QuickDirectory] {
         [
             QuickDirectory(name: DirectoryNames.incoming, path: incomingDirectory.path),

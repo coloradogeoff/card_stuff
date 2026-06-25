@@ -5,7 +5,7 @@ import Observation
 struct EbayTitleResult: Identifiable {
     let id = UUID()
     let frontName: String
-    let title: String
+    var title: String
 }
 
 @Observable
@@ -15,12 +15,12 @@ final class EbayTitlesViewModel {
     var childDirectories: [URL] = []
     var pairs: [CardPair] = []
     var visiblePairs: [CardPair] = []
-    var filterText: String = "" {
-        didSet {
-            updateVisiblePairs()
-            syncSelectionWithVisiblePairs()
-        }
-    }
+    private var pairsByID: [CardPair.ID: CardPair] = [:]
+    var filterText: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterPlayer: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterYear: String = "" { didSet { scheduleFilterUpdate() } }
+    var filterSet: String = "" { didSet { scheduleFilterUpdate() } }
+    private var filterDebounceTask: Task<Void, Never>?
     var sortField: CardPairSortField = .name {
         didSet {
             updateVisiblePairs()
@@ -44,6 +44,11 @@ final class EbayTitlesViewModel {
     var category: EbayCategory = .sportsCards
     var setOverride: String = ""
     var varietyOverride: String = ""
+    var supplementalRules: String = SettingsStore.shared.ebaySupplementalRules {
+        didSet {
+            SettingsStore.shared.ebaySupplementalRules = supplementalRules
+        }
+    }
 
     var results: [EbayTitleResult] = []
     var progress: Double = 0
@@ -86,7 +91,10 @@ final class EbayTitlesViewModel {
         let parent = currentDirectory.deletingLastPathComponent().standardized
         return parent == currentDirectory ? nil : parent
     }
-    var selectedPair: CardPair? { pairs.first { $0.id == selectedPairID } }
+    var selectedPair: CardPair? {
+        guard let selectedPairID else { return nil }
+        return pairsByID[selectedPairID]
+    }
     var previewURL: URL? {
         guard let pair = selectedPair else { return nil }
         return showingBack ? pair.back : pair.front
@@ -94,6 +102,9 @@ final class EbayTitlesViewModel {
     var checkedPairs: [CardPair] { pairs.filter { checkedIDs.contains($0.id) } }
     var titlesCSVURL: URL { currentDirectory.appendingPathComponent("description.csv") }
     var hasSavedTitles: Bool { FileManager.default.fileExists(atPath: titlesCSVURL.path) }
+    var hasActiveFilter: Bool {
+        !filterText.isEmpty || !filterPlayer.isEmpty || !filterYear.isEmpty || !filterSet.isEmpty || !selectedTraitFilters.isEmpty
+    }
 
     // MARK: - Directory
 
@@ -296,6 +307,9 @@ final class EbayTitlesViewModel {
 
     func clearFilters() {
         filterText = ""
+        filterPlayer = ""
+        filterYear = ""
+        filterSet = ""
         selectedTraitFilters = []
     }
 
@@ -321,11 +335,16 @@ final class EbayTitlesViewModel {
     }
 
     private func filteredAndSortedPairs() -> [CardPair] {
-        let matchingPairs: [CardPair]
-        if filterText.isEmpty {
-            matchingPairs = pairs
-        } else {
-            matchingPairs = pairs.filter { $0.displayName.contains(filterText) }
+        let text = filterText.lowercased()
+        let player = filterPlayer.lowercased()
+        let year = filterYear
+        let set = filterSet.lowercased()
+
+        let matchingPairs = pairs.filter { pair in
+            (text.isEmpty   || pair.displayName.lowercased().contains(text)) &&
+            (player.isEmpty || pair.parsedPlayer.contains(player)) &&
+            (year.isEmpty   || pair.parsedYear.contains(year)) &&
+            (set.isEmpty    || pair.parsedSetText.contains(set))
         }
 
         let metadataMatchingPairs = matchingPairs.filter {
@@ -339,6 +358,16 @@ final class EbayTitlesViewModel {
             case .descending:
                 return sortLess(rhs, lhs)
             }
+        }
+    }
+
+    private func scheduleFilterUpdate() {
+        filterDebounceTask?.cancel()
+        filterDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            self.updateVisiblePairs()
+            self.syncSelectionWithVisiblePairs()
         }
     }
 
@@ -362,6 +391,7 @@ final class EbayTitlesViewModel {
 
         childDirectories = index.childDirectories
         pairs = index.pairs
+        pairsByID = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0) })
         if pruneMetadata {
             metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
         }
@@ -393,6 +423,7 @@ final class EbayTitlesViewModel {
         let cat = category
         let setOvr = setOverride.trimmingCharacters(in: .whitespaces)
         let varOvr = varietyOverride.trimmingCharacters(in: .whitespaces)
+        let extraRules = supplementalRules.trimmingCharacters(in: .whitespacesAndNewlines)
         let total = Double(targets.count)
 
         // Cap parallel OpenAI calls. 13+ in flight at once tended to stall on
@@ -407,9 +438,13 @@ final class EbayTitlesViewModel {
                     backURL: pair.back,
                     category: cat,
                     setOverride: setOvr.isEmpty ? nil : setOvr,
-                    varietyOverride: varOvr.isEmpty ? nil : varOvr
+                    varietyOverride: varOvr.isEmpty ? nil : varOvr,
+                    supplementalRules: extraRules.isEmpty ? nil : extraRules
                 )
-                return (index, EbayTitleResult(frontName: frontName, title: title))
+                let correctedTitle = cat == .sportsCards
+                    ? BasketballRookieLookup.bundled.correctingRookieMarker(in: title)
+                    : title
+                return (index, EbayTitleResult(frontName: frontName, title: correctedTitle))
             } catch {
                 return (index, EbayTitleResult(frontName: frontName, title: "ERROR: \(error.localizedDescription)"))
             }
@@ -469,6 +504,10 @@ final class EbayTitlesViewModel {
         } catch {
             log("Could not load description.csv: \(error.localizedDescription)")
         }
+    }
+
+    func saveEditedTitles() {
+        saveCSV(results)
     }
 
     private func saveCSV(_ rows: [EbayTitleResult]) {
