@@ -2,15 +2,15 @@ import AppKit
 import SwiftUI
 
 struct EbayLabelView: View {
-    @State private var labels: [EbayLabelFile] = []
+    @State private var labels: [LabelFile] = []
     @State private var selectedURL: URL?
     @State private var isPrinting = false
     @State private var statusText = "Looking for eBay labels in Downloads…"
-    @State private var alertItem: EbayLabelAlertItem?
+    @State private var alertItem: AlertItem?
 
     private let service = EbayLabelService()
 
-    private var selectedLabel: EbayLabelFile? {
+    private var selectedLabel: LabelFile? {
         labels.first { $0.url == selectedURL }
     }
 
@@ -172,17 +172,11 @@ struct EbayLabelView: View {
     }
 
     private func showError(title: String, error: Error) {
-        alertItem = EbayLabelAlertItem(
+        alertItem = AlertItem(
             title: title,
             message: error.localizedDescription
         )
     }
-}
-
-private struct EbayLabelAlertItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
 }
 
 #Preview {

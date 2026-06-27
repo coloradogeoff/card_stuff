@@ -20,7 +20,7 @@ enum MessageBuilder {
 
         \(tinyURL)
 
-        If you have any questions, I'm happy to help.
+        Questions welcomed!
         Geoff
         """
     }

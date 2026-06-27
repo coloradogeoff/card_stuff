@@ -1,14 +1,6 @@
 import CoreGraphics
 import Foundation
 
-struct EbayLabelFile: Identifiable, Hashable {
-    let url: URL
-    let modifiedAt: Date
-
-    var id: URL { url }
-    var name: String { url.lastPathComponent }
-}
-
 enum EbayLabelError: Error, LocalizedError {
     case downloadsUnavailable
     case invalidPDF(URL)
@@ -39,11 +31,6 @@ enum EbayLabelError: Error, LocalizedError {
 }
 
 struct EbayLabelService {
-    static let archiveDirectory = URL(
-        fileURLWithPath: "/Users/geoff/Sales/shipping/ebay_labels",
-        isDirectory: true
-    )
-
     private static let pointsPerInch: CGFloat = 72
     private static let expectedPageSize = CGSize(width: 612, height: 792)
     private static let labelBox = CGRect(x: 90, y: 446.46, width: 432, height: 288)
@@ -55,7 +42,7 @@ struct EbayLabelService {
         options: EnvelopeCatalog.envelopeSlowOptions
     )
 
-    func findLabels() throws -> [EbayLabelFile] {
+    func findLabels() throws -> [LabelFile] {
         guard let downloads = FileManager.default.urls(
             for: .downloadsDirectory,
             in: .userDomainMask
@@ -78,7 +65,7 @@ struct EbayLabelService {
             }
             let values = try url.resourceValues(forKeys: keys)
             guard values.isRegularFile == true else { return nil }
-            return EbayLabelFile(url: url, modifiedAt: values.contentModificationDate ?? .distantPast)
+            return LabelFile(url: url, modifiedAt: values.contentModificationDate ?? .distantPast)
         }
         .sorted { $0.modifiedAt > $1.modifiedAt }
     }
@@ -178,26 +165,7 @@ struct EbayLabelService {
     }
 
     func archive(_ sourceURL: URL) throws -> URL {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: Self.archiveDirectory,
-            withIntermediateDirectories: true
-        )
-
-        var destination = Self.archiveDirectory.appendingPathComponent(
-            sourceURL.lastPathComponent
-        )
-        var counter = 2
-        while fileManager.fileExists(atPath: destination.path) {
-            let stem = sourceURL.deletingPathExtension().lastPathComponent
-            destination = Self.archiveDirectory.appendingPathComponent(
-                "\(stem) (\(counter)).\(sourceURL.pathExtension)"
-            )
-            counter += 1
-        }
-
-        try fileManager.moveItem(at: sourceURL, to: destination)
-        return destination
+        try EnvelopeCatalog.archive(sourceURL)
     }
 
     func removeOutput(at url: URL) {
