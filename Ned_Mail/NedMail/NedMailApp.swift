@@ -8,9 +8,9 @@ struct NedMailApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .frame(minWidth: 320, minHeight: 600)
+                .frame(minWidth: 320, minHeight: 860)
         }
-        .defaultSize(width: 320, height: 640)
+        .defaultSize(width: 320, height: 960)
         .windowStyle(.titleBar)
         .windowResizability(.contentMinSize)
         .commands {

@@ -5,7 +5,7 @@ struct EnvelopePrintView: View {
     @State private var toText: String = DefaultAddresses.toLines.joined(separator: "\n")
     @State private var selectedLabel: String = "5x7"
     @State private var removePDFAfterPrint: Bool = true
-    @State private var alertItem: EnvelopePrintAlertItem?
+    @State private var alertItem: AlertItem?
     @State private var isPrinting: Bool = false
 
     private let printer = EnvelopePrinter(settings: EnvelopeCatalog.printSettings)
@@ -60,8 +60,17 @@ struct EnvelopePrintView: View {
                 .labelsHidden()
                 .frame(maxWidth: 220)
 
-                Toggle("Remove PDF after print", isOn: $removePDFAfterPrint)
-                    .toggleStyle(.checkbox)
+                HStack {
+                    Toggle("Remove PDF after print", isOn: $removePDFAfterPrint)
+                        .toggleStyle(.checkbox)
+
+                    Spacer()
+
+                    Button("Reset Addresses", systemImage: "arrow.counterclockwise") {
+                        resetAddresses()
+                    }
+                    .disabled(isPrinting)
+                }
             }
             .padding(.vertical, 4)
         }
@@ -82,16 +91,21 @@ struct EnvelopePrintView: View {
         return "Size: \(spec.label) | Printer: \(settings.printerName) | Media: \(spec.media) | Output: \(settings.outputFilename)"
     }
 
+    private func resetAddresses() {
+        returnText = DefaultAddresses.returnLines.joined(separator: "\n")
+        toText = DefaultAddresses.toLines.joined(separator: "\n")
+    }
+
     private func handlePrint() {
         let returnLines = cleanedLines(returnText)
         let toLines = cleanedLines(toText)
 
         if returnLines.isEmpty {
-            alertItem = EnvelopePrintAlertItem(title: "Missing return address", message: "Enter a return address.")
+            alertItem = AlertItem(title: "Missing return address", message: "Enter a return address.")
             return
         }
         if toLines.isEmpty {
-            alertItem = EnvelopePrintAlertItem(title: "Missing destination address", message: "Enter a destination address.")
+            alertItem = AlertItem(title: "Missing destination address", message: "Enter a destination address.")
             return
         }
 
@@ -116,7 +130,7 @@ struct EnvelopePrintView: View {
             await MainActor.run {
                 isPrinting = false
                 if case .failure(let error) = result {
-                    alertItem = EnvelopePrintAlertItem(
+                    alertItem = AlertItem(
                         title: "Print error",
                         message: error.localizedDescription
                     )
@@ -130,12 +144,6 @@ struct EnvelopePrintView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
     }
-}
-
-private struct EnvelopePrintAlertItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
 }
 
 #Preview {
