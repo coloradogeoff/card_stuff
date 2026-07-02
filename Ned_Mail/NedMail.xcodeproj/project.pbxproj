@@ -20,6 +20,7 @@
 		B012 /* EbayLabelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F013 /* EbayLabelService.swift */; };
 		B013 /* EbayLabelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F014 /* EbayLabelView.swift */; };
 		B014 /* LetterTrackLabelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F015 /* LetterTrackLabelService.swift */; };
+		B016 /* InternationalShippingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016 /* InternationalShippingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		F013 /* EbayLabelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayLabelService.swift; sourceTree = "<group>"; };
 		F014 /* EbayLabelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EbayLabelView.swift; sourceTree = "<group>"; };
 		F015 /* LetterTrackLabelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LetterTrackLabelService.swift; sourceTree = "<group>"; };
+		F016 /* InternationalShippingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternationalShippingView.swift; sourceTree = "<group>"; };
 		FAPP /* Ned Mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ned Mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -80,6 +82,7 @@
 				F013 /* EbayLabelService.swift */,
 				F014 /* EbayLabelView.swift */,
 				F015 /* LetterTrackLabelService.swift */,
+				F016 /* InternationalShippingView.swift */,
 				F011 /* PostageModels.swift */,
 				F012 /* PostageView.swift */,
 				F009 /* Assets.xcassets */,
@@ -167,6 +170,7 @@
 				B012 /* EbayLabelService.swift in Sources */,
 				B013 /* EbayLabelView.swift in Sources */,
 				B014 /* LetterTrackLabelService.swift in Sources */,
+				B016 /* InternationalShippingView.swift in Sources */,
 				B010 /* PostageModels.swift in Sources */,
 				B011 /* PostageView.swift in Sources */,
 			);
