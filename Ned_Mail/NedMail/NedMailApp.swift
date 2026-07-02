@@ -32,6 +32,11 @@ struct RootView: View {
                     Label("Envelope Print", systemImage: "envelope")
                 }
 
+            InternationalShippingView()
+                .tabItem {
+                    Label("International", systemImage: "globe")
+                }
+
             EbayLabelView()
                 .tabItem {
                     Label("eBay Label", systemImage: "shippingbox.and.arrow.backward")
