@@ -196,6 +196,11 @@ struct LetterTrackView: View {
                 TextField("Tracking URL will appear here", text: $trackingURL)
                     .textFieldStyle(.roundedBorder)
                     .disabled(true)
+                Button(action: { copyToPasteboard(trackingURL) }) {
+                    Image(systemName: "doc.on.clipboard")
+                }
+                .disabled(trackingURL.isEmpty)
+                .help("Copy URL to clipboard")
             }
             .padding(.vertical, 4)
         }
