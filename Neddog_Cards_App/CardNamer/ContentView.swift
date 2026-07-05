@@ -406,6 +406,25 @@ struct CardNamerSidebar: View {
                         .tag(pair.id)
                         .contextMenu {
                             Button {
+                                // If this pair is part of a multi-selection, name all selected; else just this pair
+                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                                    vm.quickNameSelected()
+                                } else {
+                                    vm.quickName([pair])
+                                }
+                            } label: {
+                                Label(
+                                    vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id)
+                                        ? "Quick Name \(vm.selectedIDs.count) Cards"
+                                        : "Quick Name",
+                                    systemImage: "sparkles"
+                                )
+                            }
+                            .disabled(vm.isBusy)
+
+                            Divider()
+
+                            Button {
                                 // If this pair is part of a multi-selection, move all selected; else just this pair
                                 if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
                                     vm.moveSelectedToSales()

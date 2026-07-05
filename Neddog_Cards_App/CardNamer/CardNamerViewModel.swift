@@ -297,11 +297,26 @@ final class CardNamerViewModel {
         guard !sanitized.isEmpty else { return }
         if sanitized != proposedName { proposedName = sanitized }
 
+        guard let renamed = renameFiles(for: pair, to: sanitized) else { return }
+        log("Renamed to \(renamed.front.lastPathComponent) and \(renamed.back.lastPathComponent)")
+        proposedName = ""
+        pendingSelectionID = "\(renamed.front.standardized.path)|\(renamed.back.standardized.path)"
+        refreshImages()
+    }
+
+    /// Renames the file pair to `desiredBase`, resolving collisions by appending a
+    /// numeric suffix. Returns the new front/back URLs, or nil on failure.
+    @discardableResult
+    private func renameFiles(for pair: CardPair, to desiredBase: String) -> (front: URL, back: URL)? {
+        let sanitized = CardNameBuilder.sanitize(desiredBase)
+        guard !sanitized.isEmpty else { return nil }
+
         let dir = pair.front.deletingLastPathComponent()
         let ext = pair.front.pathExtension.lowercased()
         let backExt = pair.back.pathExtension.lowercased()
-        let newFront = dir.appendingPathComponent("\(sanitized).\(ext)")
-        let newBack  = dir.appendingPathComponent("\(sanitized)_b.\(backExt)")
+        let finalBase = uniqueBaseName(sanitized, in: dir, ext: ext, backExt: backExt, excluding: pair)
+        let newFront = dir.appendingPathComponent("\(finalBase).\(ext)")
+        let newBack  = dir.appendingPathComponent("\(finalBase)_b.\(backExt)")
 
         do {
             if pair.front.standardized != newFront.standardized {
@@ -312,13 +327,68 @@ final class CardNamerViewModel {
                 CardPreviewView.invalidateCache(for: pair.back)
                 try FileManager.default.moveItem(at: pair.back, to: newBack)
             }
-            metadataStore.moveMetadata(from: pair.baseName, to: sanitized)
-            log("Renamed to \(newFront.lastPathComponent) and \(newBack.lastPathComponent)")
-            proposedName = ""
-            pendingSelectionID = "\(newFront.standardized.path)|\(newBack.standardized.path)"
-            refreshImages()
+            metadataStore.moveMetadata(from: pair.baseName, to: finalBase)
+            return (newFront, newBack)
         } catch {
-            log("Rename failed: \(error.localizedDescription)")
+            log("Rename failed for \(pair.displayName): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Finds a base name whose front/back files don't already exist (ignoring the pair's own files).
+    private func uniqueBaseName(_ base: String, in dir: URL, ext: String, backExt: String, excluding pair: CardPair) -> String {
+        let fm = FileManager.default
+        func taken(_ candidate: String) -> Bool {
+            let f = dir.appendingPathComponent("\(candidate).\(ext)")
+            let b = dir.appendingPathComponent("\(candidate)_b.\(backExt)")
+            let fExists = fm.fileExists(atPath: f.path) && f.standardized != pair.front.standardized
+            let bExists = fm.fileExists(atPath: b.path) && b.standardized != pair.back.standardized
+            return fExists || bExists
+        }
+        if !taken(base) { return base }
+        var i = 2
+        while taken("\(base)_\(i)") { i += 1 }
+        return "\(base)_\(i)"
+    }
+
+    // MARK: - Quick Name (batch AI naming)
+
+    func quickNameSelected() {
+        quickName(selectedPairs)
+    }
+
+    /// Names each pair via the AI route and applies the returned name automatically.
+    func quickName(_ targets: [CardPair]) {
+        guard !isBusy, !targets.isEmpty else { return }
+        isBusy = true
+        log("Quick Name: processing \(targets.count) card\(targets.count == 1 ? "" : "s") ...")
+
+        Task {
+            var succeeded = 0
+            var failed = 0
+            for pair in targets {
+                do {
+                    let name = try await namePair(pair)
+                    let applied: Bool = await MainActor.run {
+                        if let renamed = renameFiles(for: pair, to: name) {
+                            log("Renamed \(pair.displayName) → \(renamed.front.lastPathComponent)")
+                            return true
+                        }
+                        return false
+                    }
+                    if applied { succeeded += 1 } else { failed += 1 }
+                } catch {
+                    await MainActor.run {
+                        log("Quick Name failed for \(pair.displayName): \(error.localizedDescription)")
+                    }
+                    failed += 1
+                }
+            }
+            await MainActor.run {
+                log("Quick Name complete: \(succeeded) named, \(failed) failed")
+                isBusy = false
+                refreshImages()
+            }
         }
     }
 
