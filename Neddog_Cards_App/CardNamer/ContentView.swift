@@ -20,8 +20,14 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             sidebar
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        directoryToolbarButtons
+                    }
+                }
         } detail: {
             detail
+                .navigationTitle("")
         }
         .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showSettings) { SettingsView() }
@@ -41,7 +47,6 @@ struct ContentView: View {
             )
         }
         .toolbar {
-            ToolbarItem(placement: .navigation) { directoryMenu }
             ToolbarItem(placement: .navigation) { psaButton }
             ToolbarItem(placement: .navigation) { rotateButton }
             ToolbarItem(placement: .navigation) { deleteButton }
@@ -169,36 +174,20 @@ struct ContentView: View {
         return "Move selected card pair to the Trash?"
     }
 
-    private var directoryMenu: some View {
-        Menu {
-            ForEach(SettingsStore.shared.quickDirectories) { dir in
-                Button {
-                    switchDirectory(dir)
-                } label: {
-                    Label {
-                        Text(dir.name) +
-                        Text(dir.isAvailable ? "" : "  (unavailable)")
-                            .foregroundStyle(.secondary)
-                    } icon: {
-                        Image(systemName: dir.isAvailable ? "folder.fill" : "folder.badge.questionmark")
-                    }
-                }
-                .disabled(!dir.isAvailable)
-            }
-            Divider()
-            Button("Browse…") { chooseDirectory() }
-            Divider()
-            Button("Refresh") { refreshImages() }
-        } label: {
-            Label {
-                Text(URL(fileURLWithPath: currentDirectoryPath).lastPathComponent)
-                    .lineLimit(1)
-            } icon: {
-                Image(systemName: "folder")
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .help(currentDirectoryPath)
+    @ViewBuilder
+    private var directoryToolbarButtons: some View {
+        let dirs = SettingsStore.shared.quickDirectories
+        Button("Incoming") { switchDirectory(dirs[0]) }
+            .disabled(!dirs[0].isAvailable)
+            .help("Incoming cards  (\(dirs[0].path))  ⌘1")
+        Button("Collection") { switchDirectory(dirs[1]) }
+            .disabled(!dirs[1].isAvailable)
+            .help("Collection  (\(dirs[1].path))  ⌘2")
+        Button("Sales") { switchDirectory(dirs[2]) }
+            .disabled(!dirs[2].isAvailable)
+            .help("Current sales folder  (\(dirs[2].path))  ⌘3")
+        Button("Browse…") { chooseDirectory() }
+            .help("Choose a custom folder")
     }
 
     private var rotateButton: some View {
@@ -372,12 +361,6 @@ struct CardNamerSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SidebarDirectoryMenu(
-                directoryPath: vm.directoryPath,
-                switchDirectory: { vm.switchTo($0) },
-                chooseDirectory: { vm.chooseDirectory() },
-                refreshImages: { vm.refreshImages() }
-            )
             sourceHeader
             List(selection: $vm.selectedIDs) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
@@ -778,12 +761,6 @@ struct EbayTitlesSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SidebarDirectoryMenu(
-                directoryPath: vm.directoryPath,
-                switchDirectory: { vm.switchTo($0) },
-                chooseDirectory: { vm.chooseDirectory() },
-                refreshImages: { vm.refreshImages() }
-            )
             sourceHeader
             List(selection: $vm.selectedPairID) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
