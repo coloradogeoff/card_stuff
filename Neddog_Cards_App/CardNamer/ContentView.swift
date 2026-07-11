@@ -359,6 +359,22 @@ struct CardNamerSidebar: View {
     @Bindable var vm: CardNamerViewModel
     @State private var pendingDeletePair: CardPair?
 
+    private var hasMultipleSelectedCards: Bool {
+        vm.selectedIDs.count > 1
+    }
+
+    private func contextPairs(for pair: CardPair) -> [CardPair] {
+        hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id) ? vm.selectedPairs : [pair]
+    }
+
+    private func copyCardNames(_ pairs: [CardPair]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            pairs.map(\.displayName).joined(separator: "\n"),
+            forType: .string
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             sourceHeader
@@ -407,14 +423,14 @@ struct CardNamerSidebar: View {
                         .contextMenu {
                             Button {
                                 // If this pair is part of a multi-selection, name all selected; else just this pair
-                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                                if hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id) {
                                     vm.quickNameSelected()
                                 } else {
                                     vm.quickName([pair])
                                 }
                             } label: {
                                 Label(
-                                    vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id)
+                                    hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id)
                                         ? "Quick Name \(vm.selectedIDs.count) Cards"
                                         : "Quick Name",
                                     systemImage: "sparkles"
@@ -426,7 +442,7 @@ struct CardNamerSidebar: View {
 
                             Button {
                                 // If this pair is part of a multi-selection, move all selected; else just this pair
-                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                                if hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id) {
                                     vm.moveSelectedToSales()
                                 } else {
                                     vm.moveCardToSales(pair)
@@ -437,7 +453,7 @@ struct CardNamerSidebar: View {
                             .disabled(vm.isBusy)
 
                             Button {
-                                if vm.selectedIDs.count > 1 && vm.selectedIDs.contains(pair.id) {
+                                if hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id) {
                                     vm.moveSelectedToCollection()
                                 } else {
                                     vm.moveCardToCollection(pair)
@@ -456,6 +472,7 @@ struct CardNamerSidebar: View {
                             } label: {
                                 Label("Open in GraphicConverter", systemImage: "photo")
                             }
+                            .disabled(hasMultipleSelectedCards)
 
                             Button {
                                 if let image = NSImage(contentsOf: pair.front) {
@@ -464,6 +481,13 @@ struct CardNamerSidebar: View {
                                 }
                             } label: {
                                 Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                            }
+                            .disabled(hasMultipleSelectedCards)
+
+                            Button {
+                                copyCardNames(contextPairs(for: pair))
+                            } label: {
+                                Label("Copy Card Names", systemImage: "list.clipboard")
                             }
 
                             Divider()
