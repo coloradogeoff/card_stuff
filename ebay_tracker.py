@@ -141,6 +141,25 @@ def archive_messages(service, message_ids):
             pass  # already archived or missing — skip
 
 
+def find_item_message_ids(service, item_id):
+    """Find every eBay email containing an item's stable eBay ID."""
+    if not item_id:
+        return []
+
+    ids = []
+    page_token = None
+    query = f'in:anywhere from:ebay.com "{item_id}"'
+    while True:
+        result = service.users().messages().list(
+            userId='me', q=query, pageToken=page_token, maxResults=500
+        ).execute()
+        ids.extend(message['id'] for message in result.get('messages', []))
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+    return ids
+
+
 def get_header(msg, name):
     for h in msg.get('payload', {}).get('headers', []):
         if h['name'].lower() == name.lower():
@@ -545,7 +564,9 @@ def prompt_and_archive(service, state):
 
     print()
     for p in chosen:
-        mids = p.get('message_ids', [])
+        saved_ids = p.get('message_ids', [])
+        found_ids = find_item_message_ids(service, p.get('item_id'))
+        mids = list(dict.fromkeys(saved_ids + found_ids))
         print(f"  Archiving {len(mids)} email(s): {p.get('name', '?')}")
         archive_messages(service, mids)
         p['received'] = True

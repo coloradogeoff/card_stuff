@@ -16,7 +16,7 @@ enum LetterTrackLinks {
 enum MessageBuilder {
     static func make(tinyURL: String) -> String {
         """
-        Hello, and thank you for your business. Your order has been shipped via US First Class Mail. I've included a USPS Informed Visibility tracking link so you can follow its progress through the postal system:
+        Hello, and thank you for your business. Your order has been shipped via USPS First-Class Mail. I use LetterTrackPro rather than eBay's tracking system; the link below lets you follow its progress through USPS:
 
         \(tinyURL)
 
