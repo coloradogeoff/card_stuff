@@ -39,15 +39,15 @@ enum PostageRateID: String, CaseIterable, Codable, Identifiable {
 
     var defaultCents: Int {
         switch self {
-        case .firstClassLetter1Ounce: return 78
-        case .firstClassLetter2Ounces: return 107
-        case .firstClassLetter3Ounces: return 136
-        case .domesticFlat2Ounces: return 190
-        case .domesticFlat3Ounces: return 217
-        case .internationalLetter1Ounce: return 170
-        case .canadaLetter2Ounces: return 200
-        case .mexicoLetter2Ounces: return 255
-        case .otherCountriesLetter2Ounces: return 340
+        case .firstClassLetter1Ounce: return 82
+        case .firstClassLetter2Ounces: return 111
+        case .firstClassLetter3Ounces: return 140
+        case .domesticFlat2Ounces: return 198
+        case .domesticFlat3Ounces: return 227
+        case .internationalLetter1Ounce: return 175
+        case .canadaLetter2Ounces: return 235
+        case .mexicoLetter2Ounces: return 260
+        case .otherCountriesLetter2Ounces: return 350
         }
     }
 }
@@ -65,7 +65,7 @@ struct PostageSettings: Codable, Equatable {
         rates: PostageRateID.allCases.map {
             PostageRate(id: $0, cents: $0.defaultCents)
         },
-        stampDenominations: [1, 2, 3, 4, 5, 10, 20, 25, 29, 40, 50, 78, 170]
+        stampDenominations: [1, 2, 3, 4, 5, 10, 20, 25, 29, 40, 50, 78, 175]
     )
 
     func normalized() -> PostageSettings {
@@ -73,9 +73,17 @@ struct PostageSettings: Codable, Equatable {
             result[rate.id] = rate.cents
         }
         let normalizedRates = PostageRateID.allCases.map { id in
-            PostageRate(id: id, cents: max(1, savedRates[id] ?? id.defaultCents))
+            let savedCents = savedRates[id]
+            let cents = Self.july2026RateMigrations[id].flatMap { oldCents in
+                savedCents == oldCents ? id.defaultCents : nil
+            } ?? savedCents ?? id.defaultCents
+            return PostageRate(id: id, cents: max(1, cents))
         }
-        let normalizedDenominations = Array(Set(stampDenominations.filter { $0 > 0 })).sorted()
+        let normalizedDenominations: [Int] = Array(Set<Int>(stampDenominations.compactMap { cents in
+            guard cents > 0 else { return nil }
+            // Global Forever stamps previously represented as $1.70 are now worth $1.75.
+            return cents == 170 ? 175 : cents
+        })).sorted()
 
         return PostageSettings(
             rates: normalizedRates,
@@ -84,6 +92,17 @@ struct PostageSettings: Codable, Equatable {
                 : normalizedDenominations
         )
     }
+
+    // Update settings created before the July 12, 2026 USPS price change while
+    // preserving any rate the user has already customized.
+    private static let july2026RateMigrations: [PostageRateID: Int] = [
+        .domesticFlat2Ounces: 190,
+        .domesticFlat3Ounces: 217,
+        .internationalLetter1Ounce: 170,
+        .canadaLetter2Ounces: 200,
+        .mexicoLetter2Ounces: 255,
+        .otherCountriesLetter2Ounces: 340
+    ]
 }
 
 final class PostageStore: ObservableObject {

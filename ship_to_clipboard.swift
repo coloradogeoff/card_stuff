@@ -85,7 +85,17 @@ func isShipToLabel(_ text: String) -> Bool {
 
 struct AddressRegion {
     let shipToBox: CGRect
-    let cityBox: CGRect
+    let bottomBox: CGRect
+}
+
+func isShipFromLabel(_ text: String) -> Bool {
+    let lower = text.lowercased()
+    return lower.hasPrefix("ship from") || lower.hasPrefix("return to")
+}
+
+func isReturnAddressLine(_ text: String) -> Bool {
+    let lower = text.lowercased()
+    return lower.contains("nederland") && lower.contains("80466")
 }
 
 func findAddressRegion(in observations: [TextObs]) -> AddressRegion? {
@@ -93,11 +103,26 @@ func findAddressRegion(in observations: [TextObs]) -> AddressRegion? {
         return nil
     }
     let shipToBox = observations[shipToIdx].box
-    let cityObs = observations.dropFirst(shipToIdx + 1).first {
+    let shipFromIdx = observations.dropFirst(shipToIdx + 1).firstIndex {
+        $0.box.minY < shipToBox.minY && isShipFromLabel($0.text)
+    }
+    let returnAddressIdx = observations.dropFirst(shipToIdx + 1).firstIndex {
+        $0.box.minY < shipToBox.minY && isReturnAddressLine($0.text)
+    }
+    let recipientEndIdx = shipFromIdx ?? observations.endIndex
+    let cityObs = observations[(shipToIdx + 1)..<recipientEndIdx].first {
         $0.box.minY < shipToBox.minY && $0.text.count <= 60 && isCityStateLine($0.text)
     }
-    guard let cityObs else { return nil }
-    return AddressRegion(shipToBox: shipToBox, cityBox: cityObs.box)
+
+    // International addresses have no U.S. city/state/ZIP line. In that case,
+    // use the following Ship from / Return to section as a hard lower boundary
+    // so the sender's address is never copied as part of the recipient address.
+    // Use the return-address line, rather than the left-side Ship from label,
+    // to keep the crop wide enough to include the recipient address column.
+    guard let bottomBox = cityObs?.box ?? returnAddressIdx.map({ observations[$0].box }) ?? shipFromIdx.map({ observations[$0].box }) else {
+        return nil
+    }
+    return AddressRegion(shipToBox: shipToBox, bottomBox: bottomBox)
 }
 
 // MARK: - Crop and scale
@@ -112,10 +137,10 @@ func cropAndScale(imageURL: URL, region: AddressRegion, scale: CGFloat = 4) thro
     let pad: CGFloat = 0.015
 
     // Vision coords → CG coords (flip Y)
-    let vLeft   = max(0, min(region.shipToBox.minX, region.cityBox.minX) - pad)
-    let vRight  = min(1, max(region.shipToBox.maxX, region.cityBox.maxX) + pad)
+    let vLeft   = max(0, min(region.shipToBox.minX, region.bottomBox.minX) - pad)
+    let vRight  = min(1, max(region.shipToBox.maxX, region.bottomBox.maxX) + pad)
     let vTop    = min(1, region.shipToBox.maxY + pad)   // top on screen = high Vision Y
-    let vBottom = max(0, region.cityBox.minY   - pad)
+    let vBottom = max(0, region.bottomBox.minY - pad)
 
     let cgRect = CGRect(x: vLeft * W, y: (1 - vTop) * H,
                         width: (vRight - vLeft) * W, height: (vTop - vBottom) * H)
@@ -155,6 +180,7 @@ func extractAddressFromCrop(_ observations: [TextObs]) -> String? {
     var lines: [String] = []
     for obs in observations {
         guard obs.text.count <= 60, !isShipToLabel(obs.text) else { continue }
+        if isShipFromLabel(obs.text) || isReturnAddressLine(obs.text) { break }
         lines.append(obs.text)
         if isCityStateLine(obs.text) { break }
         if lines.count >= 6 { break }
@@ -167,10 +193,22 @@ func extractAddressFromCrop(_ observations: [TextObs]) -> String? {
 
 let debug = CommandLine.arguments.contains("--debug")
 let tempPath = "/tmp/ship_to_screenshot.png"
+let suppliedImagePath: String? = {
+    guard let imageFlag = CommandLine.arguments.firstIndex(of: "--image"),
+          CommandLine.arguments.indices.contains(imageFlag + 1) else {
+        return nil
+    }
+    return CommandLine.arguments[imageFlag + 1]
+}()
 
 do {
-    try captureScreen(to: tempPath)
-    let imageURL = URL(fileURLWithPath: tempPath)
+    let imageURL: URL
+    if let suppliedImagePath {
+        imageURL = URL(fileURLWithPath: suppliedImagePath)
+    } else {
+        try captureScreen(to: tempPath)
+        imageURL = URL(fileURLWithPath: tempPath)
+    }
 
     // Pass 1: fast OCR on full screen — just to find the address bounding box
     let pass1 = try recognizeText(in: imageURL, level: .fast)
@@ -212,7 +250,9 @@ do {
     if debug {
         fputs("Screenshot: \(tempPath)\nCrop: \(cropURL.path)\n", stderr)
     } else {
-        try? FileManager.default.removeItem(at: imageURL)
+        if suppliedImagePath == nil {
+            try? FileManager.default.removeItem(at: imageURL)
+        }
         try? FileManager.default.removeItem(at: cropURL)
     }
 } catch {
