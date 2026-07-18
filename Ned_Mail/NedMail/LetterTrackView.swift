@@ -1,6 +1,45 @@
 import AppKit
 import SwiftUI
 
+private struct LetterTrackPrintJob {
+    let sourceURL: URL
+    let filename: String
+    let spec: EnvelopeSpec
+    let pageCount: Int
+}
+
+private struct EnvelopeInsertPrompt: Identifiable {
+    let pageNumber: Int
+    let pageCount: Int
+
+    var id: Int { pageNumber }
+
+    var title: String {
+        switch pageNumber {
+        case 2: return "Second PDF. Insert envelope"
+        case 3: return "Third PDF. Insert envelope"
+        case 4: return "Fourth PDF. Insert envelope"
+        default: return "Page \(pageNumber) PDF. Insert envelope"
+        }
+    }
+
+    var message: String {
+        "Load an envelope, then choose Print Page \(pageNumber) of \(pageCount)."
+    }
+}
+
+private enum LetterTrackAlert: Identifiable {
+    case error(AlertItem)
+    case insertEnvelope(EnvelopeInsertPrompt)
+
+    var id: String {
+        switch self {
+        case .error(let item): return "error-\(item.id.uuidString)"
+        case .insertEnvelope(let prompt): return "envelope-\(prompt.pageNumber)"
+        }
+    }
+}
+
 struct LetterTrackView: View {
     @State private var trackingNumber: String = ""
     @State private var trackingURL: String = ""
@@ -12,7 +51,8 @@ struct LetterTrackView: View {
     @State private var selectedSpec: EnvelopeSpec = EnvelopeCatalog.spec6x9
     @State private var isPrinting = false
     @State private var statusText = "Looking for LetterTrack labels in Downloads…"
-    @State private var alertItem: AlertItem?
+    @State private var activeAlert: LetterTrackAlert?
+    @State private var activePrintJob: LetterTrackPrintJob?
 
     private let service = LetterTrackLabelService()
 
@@ -35,8 +75,19 @@ struct LetterTrackView: View {
             .background(Color.green.opacity(0.08))
         }
         .task { refreshLabels() }
-        .alert(item: $alertItem) { item in
-            Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text("OK")))
+        .alert(item: $activeAlert) { alert in
+            switch alert {
+            case .error(let item):
+                Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text("OK")))
+            case .insertEnvelope(let prompt):
+                Alert(
+                    title: Text(prompt.title),
+                    message: Text(prompt.message),
+                    dismissButton: .default(Text("Print Page \(prompt.pageNumber)")) {
+                        printPage(prompt.pageNumber)
+                    }
+                )
+            }
         }
     }
 
@@ -142,35 +193,95 @@ struct LetterTrackView: View {
         let spec = selectedSpec
 
         Task {
-            let result = await Task.detached { () -> Result<URL, Error> in
+            let result = await Task.detached {
+                Result { try service.pageCount(in: label.url) }
+            }.value
+
+            switch result {
+            case .success(let pageCount):
+                activePrintJob = LetterTrackPrintJob(
+                    sourceURL: label.url,
+                    filename: label.name,
+                    spec: spec,
+                    pageCount: pageCount
+                )
+                printPage(1)
+            case .failure(let error):
+                finishPrintWithError(error)
+            }
+        }
+    }
+
+    private func printPage(_ pageNumber: Int) {
+        guard let job = activePrintJob else { return }
+        statusText = "Printing page \(pageNumber) of \(job.pageCount) from \(job.filename)…"
+
+        Task {
+            let result = await Task.detached { () -> Result<Void, Error> in
                 var outputURL: URL?
                 do {
-                    let rendered = try service.renderEnvelopePDF(from: label.url, spec: spec)
+                    let rendered = try service.renderEnvelopePDF(
+                        from: job.sourceURL,
+                        pageNumber: pageNumber,
+                        spec: job.spec
+                    )
                     outputURL = rendered
-                    try service.printPDF(at: rendered, spec: spec)
-                    let archived = try service.archive(label.url)
+                    try service.printPDF(at: rendered, spec: job.spec)
                     service.removeOutput(at: rendered)
-                    return .success(archived)
+                    return .success(())
                 } catch {
                     if let outputURL { service.removeOutput(at: outputURL) }
                     return .failure(error)
                 }
             }.value
 
-            isPrinting = false
             switch result {
-            case .success(let archived):
-                statusText = "Printed and archived \(archived.lastPathComponent)."
-                refreshLabels()
+            case .success:
+                if pageNumber == job.pageCount {
+                    archive(job)
+                } else {
+                    statusText = "Page \(pageNumber) printed. Insert an envelope for page \(pageNumber + 1)."
+                    activeAlert = .insertEnvelope(EnvelopeInsertPrompt(
+                        pageNumber: pageNumber + 1,
+                        pageCount: job.pageCount
+                    ))
+                }
             case .failure(let error):
-                statusText = "Print failed."
-                showAlert(title: "Print error", error: error)
+                finishPrintWithError(error)
             }
         }
     }
 
+    private func archive(_ job: LetterTrackPrintJob) {
+        statusText = "Archiving \(job.filename)…"
+
+        Task {
+            let result = await Task.detached {
+                Result { try service.archive(job.sourceURL) }
+            }.value
+
+            switch result {
+            case .success(let archived):
+                isPrinting = false
+                activePrintJob = nil
+                statusText = "Printed and archived \(archived.lastPathComponent)."
+                refreshLabels()
+            case .failure(let error):
+                finishPrintWithError(error)
+            }
+        }
+    }
+
+    private func finishPrintWithError(_ error: Error) {
+        isPrinting = false
+        activePrintJob = nil
+        activeAlert = nil
+        statusText = "Print failed."
+        showAlert(title: "Print error", error: error)
+    }
+
     private func showAlert(title: String, error: Error) {
-        alertItem = AlertItem(title: title, message: error.localizedDescription)
+        activeAlert = .error(AlertItem(title: title, message: error.localizedDescription))
     }
 
     // MARK: - Tracking number section (unchanged)

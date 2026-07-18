@@ -52,10 +52,18 @@ struct LetterTrackLabelService {
         .sorted { $0.modifiedAt > $1.modifiedAt }
     }
 
-    func renderEnvelopePDF(from sourceURL: URL, spec: EnvelopeSpec) throws -> URL {
+    func pageCount(in sourceURL: URL) throws -> Int {
         guard let document = CGPDFDocument(sourceURL as CFURL),
-              document.numberOfPages == 1,
-              let sourcePage = document.page(at: 1) else {
+              document.numberOfPages > 0 else {
+            throw LetterTrackLabelError.invalidPDF(sourceURL)
+        }
+
+        return document.numberOfPages
+    }
+
+    func renderEnvelopePDF(from sourceURL: URL, pageNumber: Int, spec: EnvelopeSpec) throws -> URL {
+        guard let document = CGPDFDocument(sourceURL as CFURL),
+              let sourcePage = document.page(at: pageNumber) else {
             throw LetterTrackLabelError.invalidPDF(sourceURL)
         }
 
@@ -63,7 +71,7 @@ struct LetterTrackLabelService {
         let envW = spec.pageWidthIn  * 72
         let envH = spec.pageHeightIn * 72
 
-        let outputURL = printer.outputURL
+        let outputURL = printer.outputURL(forPage: pageNumber)
         var mediaBox = CGRect(x: 0, y: 0, width: envW, height: envH)
         guard let context = CGContext(outputURL as CFURL, mediaBox: &mediaBox, nil) else {
             throw LetterTrackLabelError.outputCreationFailed(outputURL)

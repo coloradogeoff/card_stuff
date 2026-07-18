@@ -18,11 +18,20 @@ struct EnvelopePrinter {
     let settings: PrintSettings
 
     var outputURL: URL {
+        outputURL(forPage: nil)
+    }
+
+    func outputURL(forPage pageNumber: Int?) -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let appDir = dir.appendingPathComponent("NedMail", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        return appDir.appendingPathComponent(settings.outputFilename)
+        guard let pageNumber else {
+            return appDir.appendingPathComponent(settings.outputFilename)
+        }
+
+        let filename = (settings.outputFilename as NSString).deletingPathExtension
+        return appDir.appendingPathComponent("\(filename)-page-\(pageNumber).pdf")
     }
 
     func renderPDF(spec: EnvelopeSpec, returnLines: [String], toLines: [String]) throws -> URL {
