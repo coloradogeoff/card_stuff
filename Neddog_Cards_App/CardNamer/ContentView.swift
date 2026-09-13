@@ -1472,9 +1472,15 @@ private struct CardLightboxView: View {
     let onClose: () -> Void
 
     @FocusState private var isFocused: Bool
+    @State private var showingBack = false
 
     private var pair: CardPair? {
         pairs.indices.contains(index) ? pairs[index] : nil
+    }
+
+    private var imageURL: URL? {
+        guard let pair else { return nil }
+        return showingBack ? pair.back : pair.front
     }
 
     var body: some View {
@@ -1486,10 +1492,17 @@ private struct CardLightboxView: View {
 
             if let pair {
                 VStack(spacing: 8) {
-                    CardPreviewView(imageURL: pair.front, reloadID: 0)
+                    CardPreviewView(imageURL: imageURL, reloadID: 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
-                        .onTapGesture {} // swallow taps on the image so they don't dismiss
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                showingBack.toggle()
+                            }
+                        }
+                    Text(showingBack ? "Back  •  tap to flip" : "Front  •  tap to flip")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.8))
                     Text(pair.displayName)
                         .font(.callout)
                         .foregroundStyle(.white)
@@ -1524,6 +1537,7 @@ private struct CardLightboxView: View {
         .focusable()
         .focused($isFocused)
         .onAppear { isFocused = true }
+        .onChange(of: index) { showingBack = false }
         .onKeyPress(.escape) { onClose(); return .handled }
         .onKeyPress(.leftArrow) { step(by: -1); return .handled }
         .onKeyPress(.rightArrow) { step(by: 1); return .handled }
