@@ -156,7 +156,7 @@ struct ContentView: View {
         if appMode == .cardNamer {
             return !cardVM.selectedIDs.isEmpty && !cardVM.isBusy
         }
-        return ebayVM.selectedPair != nil && !ebayVM.isBusy
+        return !ebayVM.selectedIDs.isEmpty && !ebayVM.isBusy
     }
 
     private var canDownloadPSA: Bool {
@@ -167,11 +167,8 @@ struct ContentView: View {
     }
 
     private var activeDeleteMessage: String {
-        if appMode == .cardNamer {
-            let n = cardVM.selectedIDs.count
-            return n > 1 ? "Move \(n) cards to the Trash?" : "Move selected card to the Trash?"
-        }
-        return "Move selected card pair to the Trash?"
+        let n = appMode == .cardNamer ? cardVM.selectedIDs.count : ebayVM.selectedIDs.count
+        return n > 1 ? "Move \(n) cards to the Trash?" : "Move selected card to the Trash?"
     }
 
     @ViewBuilder
@@ -659,8 +656,12 @@ struct CardNamerDetail: View {
             VStack(spacing: 0) {
                 Color(nsColor: .windowBackgroundColor)
                     .overlay {
-                        CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
-                            .onTapGesture { vm.togglePreviewSide() }
+                        if vm.selectedIDs.count > 1 {
+                            MultiSelectionThumbnailGrid(pairs: vm.selectedPairs)
+                        } else {
+                            CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
+                                .onTapGesture { vm.togglePreviewSide() }
+                        }
                     }
                     .overlay(alignment: .bottom) {
                         if vm.previewURL != nil {
@@ -705,7 +706,7 @@ struct CardNamerDetail: View {
 
     private var actionArea: some View {
         VStack(spacing: 12) {
-            Text("Click Identify Card to generate a name using OpenAI. Edit the name if needed, then click Rename to apply it. Use the TCDB and eBay buttons to search the web using the card's name.")
+            Text("Click Identify Card to generate a name using OpenAI. Edit the name if needed, then press Return or click Rename to apply it. Use the TCDB and eBay buttons to search the web using the card's name.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -718,6 +719,10 @@ struct CardNamerDetail: View {
                 TextField("Select a card to begin", text: $vm.proposedName)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
+                    .onSubmit {
+                        guard !vm.isBusy else { return }
+                        vm.acceptName()
+                    }
             }
 
             CardTraitEditor(
@@ -805,7 +810,7 @@ struct EbayTitlesSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             sourceHeader
-            List(selection: $vm.selectedPairID) {
+            List(selection: $vm.selectedIDs) {
                 if vm.parentDirectory != nil || !vm.childDirectories.isEmpty {
                     Section {
                         if vm.parentDirectory != nil {
@@ -830,14 +835,14 @@ struct EbayTitlesSidebar: View {
 
                 Section {
                     ForEach(vm.visiblePairs) { pair in
-                        HStack(spacing: 6) {
-                            Image(systemName: vm.checkedIDs.contains(pair.id) ? "checkmark.square.fill" : "square")
-                                .foregroundStyle(vm.checkedIDs.contains(pair.id) ? Color.accentColor : .secondary)
-                                .onTapGesture { vm.toggleCheck(pair) }
+                        Label {
                             Text(pair.displayName)
                                 .font(.system(size: 12))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                        } icon: {
+                            Image(systemName: "photo.on.rectangle")
+                                .foregroundStyle(.secondary)
                         }
                         .tag(pair.id)
                     }
@@ -850,7 +855,7 @@ struct EbayTitlesSidebar: View {
                 Button("All")  { vm.selectAll() }
                 Button("None") { vm.selectNone() }
                 Spacer()
-                Text("\(vm.checkedIDs.count) selected")
+                Text("\(vm.selectedIDs.count) selected")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -864,11 +869,11 @@ struct EbayTitlesSidebar: View {
                 Label("Delete Selected", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
-            .disabled(vm.checkedIDs.isEmpty)
+            .disabled(vm.selectedIDs.isEmpty)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             .confirmationDialog(
-                "Move \(vm.checkedIDs.count) \(vm.checkedIDs.count == 1 ? "pair" : "pairs") to the Trash?",
+                "Move \(vm.selectedIDs.count) \(vm.selectedIDs.count == 1 ? "pair" : "pairs") to the Trash?",
                 isPresented: $showDeleteConfirmation,
                 titleVisibility: .visible
             ) {
@@ -1062,7 +1067,7 @@ struct EbayTitlesDetail: View {
                 .buttonStyle(.borderedProminent)
                 .tint(.orange)
                 .controlSize(.large)
-                .disabled(vm.checkedIDs.isEmpty || vm.isBusy)
+                .disabled(vm.selectedIDs.isEmpty || vm.isBusy)
 
                 if vm.hasSavedTitles {
                     Button("Display Titles") {
@@ -1258,13 +1263,20 @@ private enum EbayListingDescription {
 
 // MARK: - Card preview
 
+/// Shared by `CardPreviewView` and `MultiSelectionThumbnailGrid` so a card's image
+/// is only ever decoded once regardless of which view requests it.
+@MainActor
+fileprivate enum CardImageCache {
+    static let shared = NSCache<NSURL, NSImage>()
+}
+
 struct CardPreviewView: View {
     let imageURL: URL?
     let reloadID: Int
     @State private var loadedURL: URL?
     @State private var loadedImage: NSImage?
 
-    private static let imageCache = NSCache<NSURL, NSImage>()
+    private static var imageCache: NSCache<NSURL, NSImage> { CardImageCache.shared }
 
     static func invalidateCache(for imageURL: URL) {
         imageCache.removeObject(forKey: imageURL as NSURL)
@@ -1328,6 +1340,255 @@ struct CardPreviewView: View {
             Self.imageCache.setObject(image, forKey: cacheKey)
         }
         loadedImage = image
+    }
+}
+
+// MARK: - Multi-selection thumbnail grid
+
+/// Snapshot view shown in place of the single-card preview when more than one
+/// card is selected: a grid of front-only thumbnails. The column count and
+/// thumbnail size are computed from the pane's actual size so that, whenever
+/// possible, every selected card fits on screen at once (shrinking thumbnails
+/// as the selection grows) instead of always requiring a scroll.
+struct MultiSelectionThumbnailGrid: View {
+    let pairs: [CardPair]
+
+    @State private var expandedIndex: Int?
+
+    private let spacing: CGFloat = 10
+    private let outerPadding: CGFloat = 14
+    private let labelHeight: CGFloat = 18
+    private let aspectRatio: CGFloat = 2.5 / 3.5 // width / height
+    private let minItemWidth: CGFloat = 90
+    private let maxItemWidth: CGFloat = 260
+
+    var body: some View {
+        GeometryReader { proxy in
+            let available = CGSize(
+                width: max(proxy.size.width - outerPadding * 2, 0),
+                height: max(proxy.size.height - outerPadding * 2, 0)
+            )
+            let layout = computeLayout(count: pairs.count, in: available)
+
+            ScrollView {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.fixed(layout.itemWidth), spacing: spacing), count: layout.columns),
+                    spacing: spacing
+                ) {
+                    ForEach(Array(pairs.enumerated()), id: \.element.id) { index, pair in
+                        VStack(spacing: 4) {
+                            CardThumbnailView(imageURL: pair.front)
+                                .aspectRatio(aspectRatio, contentMode: .fit)
+                                .frame(width: layout.itemWidth)
+                                .background(Color(nsColor: .textBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .strokeBorder(Color.secondary.opacity(0.25))
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.easeOut(duration: 0.16)) {
+                                        expandedIndex = index
+                                    }
+                                }
+                            Text(pair.displayName)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(width: layout.itemWidth)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(outerPadding)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Text("\(pairs.count) selected")
+                .font(.caption2)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.45))
+                .clipShape(Capsule())
+                .padding(8)
+        }
+        .overlay {
+            if let expandedIndex, pairs.indices.contains(expandedIndex) {
+                CardLightboxView(
+                    pairs: pairs,
+                    index: expandedIndex,
+                    onNavigate: { self.expandedIndex = $0 },
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            self.expandedIndex = nil
+                        }
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+    }
+
+    /// Finds the column count that yields the largest thumbnail (capped at
+    /// `maxItemWidth`) whose full grid still fits in `available` without
+    /// scrolling; ties favor more columns (a wider, flatter layout). Falls
+    /// back to a squarish grid — with scrolling — only when nothing fits.
+    private func computeLayout(count: Int, in available: CGSize) -> (columns: Int, itemWidth: CGFloat) {
+        guard count > 0, available.width > 0 else { return (1, minItemWidth) }
+
+        var best: (columns: Int, itemWidth: CGFloat)?
+        for columns in 1...count {
+            let rawItemWidth = (available.width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
+            guard rawItemWidth >= minItemWidth else { continue }
+            let itemWidth = min(maxItemWidth, rawItemWidth)
+
+            let rows = Int(ceil(Double(count) / Double(columns)))
+            let itemHeight = itemWidth / aspectRatio + labelHeight
+            let totalHeight = CGFloat(rows) * itemHeight + spacing * CGFloat(max(0, rows - 1))
+
+            if totalHeight <= available.height, best == nil || itemWidth >= best!.itemWidth {
+                best = (columns, itemWidth)
+            }
+        }
+        if let best { return best }
+
+        let fallbackColumns = max(1, Int(ceil(sqrt(Double(count)))))
+        let itemWidth = max(minItemWidth, min(maxItemWidth, (available.width - spacing * CGFloat(fallbackColumns - 1)) / CGFloat(fallbackColumns)))
+        return (fallbackColumns, itemWidth)
+    }
+}
+
+/// Full-size lightbox overlay opened by tapping a thumbnail in
+/// `MultiSelectionThumbnailGrid`. Tapping the dimmed background (or the close
+/// button, or Escape) dismisses it; the chevrons and left/right arrow keys
+/// step through the rest of the current selection without closing.
+private struct CardLightboxView: View {
+    let pairs: [CardPair]
+    let index: Int
+    let onNavigate: (Int) -> Void
+    let onClose: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    private var pair: CardPair? {
+        pairs.indices.contains(index) ? pairs[index] : nil
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { onClose() }
+
+            if let pair {
+                VStack(spacing: 8) {
+                    CardPreviewView(imageURL: pair.front, reloadID: 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture {} // swallow taps on the image so they don't dismiss
+                    Text(pair.displayName)
+                        .font(.callout)
+                        .foregroundStyle(.white)
+                        .padding(.bottom, 16)
+                }
+                .padding(48)
+            }
+
+            HStack {
+                navButton(systemImage: "chevron.left") { step(by: -1) }
+                    .disabled(pairs.count <= 1)
+                Spacer()
+                navButton(systemImage: "chevron.right") { step(by: 1) }
+                    .disabled(pairs.count <= 1)
+            }
+            .padding(.horizontal, 24)
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white, .black.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(16)
+                }
+                Spacer()
+            }
+        }
+        .focusable()
+        .focused($isFocused)
+        .onAppear { isFocused = true }
+        .onKeyPress(.escape) { onClose(); return .handled }
+        .onKeyPress(.leftArrow) { step(by: -1); return .handled }
+        .onKeyPress(.rightArrow) { step(by: 1); return .handled }
+    }
+
+    private func step(by delta: Int) {
+        guard !pairs.isEmpty else { return }
+        let next = (index + delta + pairs.count) % pairs.count
+        onNavigate(next)
+    }
+
+    private func navButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(14)
+                .background(.black.opacity(0.35), in: Circle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A single lightweight thumbnail (front image only) for `MultiSelectionThumbnailGrid`.
+private struct CardThumbnailView: View {
+    let imageURL: URL
+    @State private var loadedURL: URL?
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image, loadedURL == imageURL {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .task(id: imageURL) {
+            await load()
+        }
+    }
+
+    private func load() async {
+        let cacheKey = imageURL as NSURL
+        if let cached = CardImageCache.shared.object(forKey: cacheKey) {
+            loadedURL = imageURL
+            image = cached
+            return
+        }
+
+        loadedURL = imageURL
+        image = nil
+
+        let loaded = await Task.detached(priority: .utility) {
+            NSImage(contentsOf: imageURL)
+        }.value
+
+        guard !Task.isCancelled, loadedURL == imageURL else { return }
+        if let loaded {
+            CardImageCache.shared.setObject(loaded, forKey: cacheKey)
+        }
+        image = loaded
     }
 }
 

@@ -2,7 +2,29 @@ import Foundation
 import AppKit
 import Observation
 
+/// A `CardPair`'s sort-relevant fields, parsed once from the filename up
+/// front so the sort comparator itself only ever does cheap field comparisons.
+private struct CardSortKey {
+    let pair: CardPair
+    let year: String
+    let player: String
+    let set: String
+    let number: Int?
+    let variation: String
+
+    init(pair: CardPair) {
+        self.pair = pair
+        let components = pair.nameComponents
+        self.year = pair.parsedYear
+        self.player = pair.parsedPlayer
+        self.set = "\(components.manufacturer) \(components.series)"
+        self.number = components.number
+        self.variation = components.variation
+    }
+}
+
 @Observable
+@MainActor
 final class CardNamerViewModel {
 
     // Directory state
@@ -73,13 +95,18 @@ final class CardNamerViewModel {
     init() {
         startWatching()
         refreshImages()
-        NotificationCenter.default.addObserver(forName: .goToDirectory, object: nil, queue: .main) { [self] note in
-            if let dir = note.object as? QuickDirectory {
-                switchTo(dir)
+        // Both observers are delivered on `.main`, so the blocks are already on the
+        // main actor by the time they run.
+        NotificationCenter.default.addObserver(forName: .goToDirectory, object: nil, queue: .main) { [weak self] note in
+            guard let dir = note.object as? QuickDirectory else { return }
+            MainActor.assumeIsolated {
+                self?.switchTo(dir)
             }
         }
-        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [self] _ in
-            refreshImages()
+        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshImages()
+            }
         }
     }
 
@@ -167,7 +194,11 @@ final class CardNamerViewModel {
             metadataStore.matches($0, selectedTraits: selectedTraitFilters)
         }
 
-        return metadataMatchingPairs.sorted { lhs, rhs in
+        // Parse each pair's sort fields once up front (O(n)) rather than inside
+        // the comparator, which would re-parse the filename on every pairwise
+        // comparison (O(n log n) parses) — costly once a folder has 1,000+ cards.
+        let keyed = metadataMatchingPairs.map { CardSortKey(pair: $0) }
+        let ordered = keyed.sorted { lhs, rhs in
             switch sortOrder {
             case .ascending:
                 return sortLess(lhs, rhs)
@@ -175,6 +206,7 @@ final class CardNamerViewModel {
                 return sortLess(rhs, lhs)
             }
         }
+        return ordered.map(\.pair)
     }
 
     private func scheduleFilterUpdate() {
@@ -187,16 +219,41 @@ final class CardNamerViewModel {
         }
     }
 
-    private func sortLess(_ lhs: CardPair, _ rhs: CardPair) -> Bool {
+    private func sortLess(_ lhs: CardSortKey, _ rhs: CardSortKey) -> Bool {
         switch sortField {
         case .name:
-            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+            return cardNameLess(lhs, rhs)
         case .modificationDate:
-            let lhsDate = lhs.modificationDate
-            let rhsDate = rhs.modificationDate
+            let lhsDate = lhs.pair.modificationDate
+            let rhsDate = rhs.pair.modificationDate
             if lhsDate != rhsDate { return lhsDate < rhsDate }
-            return CardDirectoryIndexStore.naturalSortLess(lhs.displayName, rhs.displayName)
+            return cardNameLess(lhs, rhs)
         }
+    }
+
+    /// Orders by year, player, set (manufacturer + series), then card number
+    /// (numeric, so 2 < 25 < 206) with variation only as a final tiebreaker —
+    /// this keeps same-numbered cards grouped together regardless of variation.
+    /// Operates on precomputed `CardSortKey`s so no filename parsing happens here.
+    private func cardNameLess(_ lhs: CardSortKey, _ rhs: CardSortKey) -> Bool {
+        if lhs.year != rhs.year {
+            return CardDirectoryIndexStore.naturalSortLess(lhs.year, rhs.year)
+        }
+        if lhs.player != rhs.player {
+            return CardDirectoryIndexStore.naturalSortLess(lhs.player, rhs.player)
+        }
+        if lhs.set != rhs.set {
+            return CardDirectoryIndexStore.naturalSortLess(lhs.set, rhs.set)
+        }
+        if lhs.number != rhs.number {
+            guard let lhsNumber = lhs.number else { return false }
+            guard let rhsNumber = rhs.number else { return true }
+            return lhsNumber < rhsNumber
+        }
+        if lhs.variation != rhs.variation {
+            return CardDirectoryIndexStore.naturalSortLess(lhs.variation, rhs.variation)
+        }
+        return CardDirectoryIndexStore.naturalSortLess(lhs.pair.displayName, rhs.pair.displayName)
     }
 
     func refreshImages(silent: Bool = false) {
@@ -228,21 +285,19 @@ final class CardNamerViewModel {
                 CardDirectoryIndexStore.scanDirectory(dir)
             }.value
 
-            await MainActor.run {
-                guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
-                let previousPairIDs = self.pairs.map(\.id)
-                self.applyDirectoryIndex(index, pruneMetadata: true)
-                Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
+            guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
+            let previousPairIDs = self.pairs.map(\.id)
+            self.applyDirectoryIndex(index, pruneMetadata: true)
+            Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
 
-                if !silent {
-                    if index.imageFileCount == 0 {
-                        self.log("No image files found.")
-                    } else {
-                        self.log("Loaded \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
-                    }
-                } else if previousPairIDs != index.pairs.map(\.id) {
-                    self.log("Updated \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
+            if !silent {
+                if index.imageFileCount == 0 {
+                    self.log("No image files found.")
+                } else {
+                    self.log("Loaded \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
                 }
+            } else if previousPairIDs != index.pairs.map(\.id) {
+                self.log("Updated \(index.pairs.count) card pair(s) from \(dir.lastPathComponent).")
             }
         }
     }
@@ -258,16 +313,12 @@ final class CardNamerViewModel {
         Task {
             do {
                 let name = try await namePair(pair)
-                await MainActor.run {
-                    proposedName = name
-                    log("Suggested name: \(name)")
-                    isBusy = false
-                }
+                proposedName = name
+                log("Suggested name: \(name)")
+                isBusy = false
             } catch {
-                await MainActor.run {
-                    log("Naming failed: \(error.localizedDescription)")
-                    isBusy = false
-                }
+                log("Naming failed: \(error.localizedDescription)")
+                isBusy = false
             }
         }
     }
@@ -369,26 +420,20 @@ final class CardNamerViewModel {
             for pair in targets {
                 do {
                     let name = try await namePair(pair)
-                    let applied: Bool = await MainActor.run {
-                        if let renamed = renameFiles(for: pair, to: name) {
-                            log("Renamed \(pair.displayName) → \(renamed.front.lastPathComponent)")
-                            return true
-                        }
-                        return false
+                    if let renamed = renameFiles(for: pair, to: name) {
+                        log("Renamed \(pair.displayName) → \(renamed.front.lastPathComponent)")
+                        succeeded += 1
+                    } else {
+                        failed += 1
                     }
-                    if applied { succeeded += 1 } else { failed += 1 }
                 } catch {
-                    await MainActor.run {
-                        log("Quick Name failed for \(pair.displayName): \(error.localizedDescription)")
-                    }
+                    log("Quick Name failed for \(pair.displayName): \(error.localizedDescription)")
                     failed += 1
                 }
             }
-            await MainActor.run {
-                log("Quick Name complete: \(succeeded) named, \(failed) failed")
-                isBusy = false
-                refreshImages()
-            }
+            log("Quick Name complete: \(succeeded) named, \(failed) failed")
+            isBusy = false
+            refreshImages()
         }
     }
 
@@ -506,18 +551,14 @@ final class CardNamerViewModel {
                     try ImageEditingService.rotateClockwise(fileURL: previewURL)
                 }.value
 
-                await MainActor.run {
-                    CardPreviewView.invalidateCache(for: previewURL)
-                    self.previewRevision += 1
-                    log("Rotated \(previewURL.lastPathComponent)")
-                    isBusy = false
-                    refreshImages(silent: true)
-                }
+                CardPreviewView.invalidateCache(for: previewURL)
+                self.previewRevision += 1
+                log("Rotated \(previewURL.lastPathComponent)")
+                isBusy = false
+                refreshImages(silent: true)
             } catch {
-                await MainActor.run {
-                    log("Rotate failed: \(error.localizedDescription)")
-                    isBusy = false
-                }
+                log("Rotate failed: \(error.localizedDescription)")
+                isBusy = false
             }
         }
     }
@@ -543,17 +584,13 @@ final class CardNamerViewModel {
                     outputDirectory: destination,
                     token: token
                 )
-                await MainActor.run {
-                    if !output.isEmpty { log(output) }
-                    log("Downloaded PSA cert \(trimmedCert) to \(destination.lastPathComponent)")
-                    isBusy = false
-                    refreshImages()
-                }
+                if !output.isEmpty { log(output) }
+                log("Downloaded PSA cert \(trimmedCert) to \(destination.lastPathComponent)")
+                isBusy = false
+                refreshImages()
             } catch {
-                await MainActor.run {
-                    log("PSA download failed: \(error.localizedDescription)")
-                    isBusy = false
-                }
+                log("PSA download failed: \(error.localizedDescription)")
+                isBusy = false
             }
         }
     }
@@ -655,12 +692,17 @@ final class CardNamerViewModel {
 
     private func startWatching() {
         watcher.watch(url: currentDirectory)
+        // DirectoryWatcher's DispatchSource is created with `queue: .main`, so this
+        // handler always arrives on the main thread.
         watcher.onChange = { [weak self] in
-            self?.debounceTask?.cancel()
-            self?.debounceTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled else { return }
-                self?.refreshImages(silent: true)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.debounceTask?.cancel()
+                self.debounceTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.refreshImages(silent: true)
+                }
             }
         }
     }

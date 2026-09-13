@@ -49,6 +49,39 @@ struct CardPair: Identifiable, Equatable {
         return parts[2...].joined(separator: " ").lowercased()
     }
 
+    /// Manufacturer, series, number, and variation, parsed in a single pass.
+    /// Filename format: YYYY-Player-Manufacturer-Series-[Variation-]Number.
+    /// Callers that need several of these fields (e.g. sorting) should call
+    /// this once and read fields off the result, rather than calling the
+    /// individual `parsed*` properties repeatedly — each of those re-splits
+    /// the filename from scratch, which is fine for a single lookup but adds
+    /// up fast if done on every pairwise comparison in a sort.
+    var nameComponents: CardNameComponents {
+        let parts = baseName.split(separator: "-")
+
+        let manufacturer = parts.count > 2 ? String(parts[2]).lowercased() : ""
+        let series = parts.count > 3 ? String(parts[3]).lowercased() : ""
+
+        let number: Int?
+        if let last = parts.last {
+            let digits = last.prefix(while: \.isNumber)
+            number = digits.isEmpty ? nil : Int(digits)
+        } else {
+            number = nil
+        }
+
+        let variation = parts.count > 4 ? parts[4..<(parts.count - 1)].joined(separator: " ").lowercased() : ""
+
+        return CardNameComponents(manufacturer: manufacturer, series: series, number: number, variation: variation)
+    }
+
+}
+
+struct CardNameComponents {
+    let manufacturer: String
+    let series: String
+    let number: Int?
+    let variation: String
 }
 
 enum CardPairSortField: String, CaseIterable, Identifiable {
