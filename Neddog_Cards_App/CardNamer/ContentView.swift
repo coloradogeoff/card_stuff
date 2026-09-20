@@ -1411,8 +1411,14 @@ struct EbayTitlesDetail: View {
         VStack(spacing: 0) {
             Color(nsColor: .windowBackgroundColor)
                 .overlay {
-                    CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
-                        .onTapGesture { vm.togglePreviewSide() }
+                    // Matches Card Namer: a multi-selection previews as a grid,
+                    // a single card as the full-size front/back view.
+                    if vm.selectedIDs.count > 1 {
+                        MultiSelectionThumbnailGrid(pairs: vm.selectedPairs)
+                    } else {
+                        CardPreviewView(imageURL: vm.previewURL, reloadID: vm.previewRevision)
+                            .onTapGesture { vm.togglePreviewSide() }
+                    }
                 }
                 .overlay(alignment: .bottom) {
                     if vm.previewURL != nil {
