@@ -168,6 +168,59 @@ struct CardTraits: Codable, Equatable {
     }
 }
 
+/// An eBay listing record for one card: the title we generated (or that was
+/// hand-edited), whether it has actually been listed, and when.
+///
+/// Persisted by `CardListingStore` in `ebay_metadata.json`, keyed by
+/// `CardPair.baseName` — deliberately a separate file from the traits in
+/// `card_metadata.json` so listing state can never endanger trait data.
+struct CardListing: Codable, Equatable {
+    var title: String?
+    var listed: Bool = false
+    var listedAt: Date?
+    var updatedAt: Date?
+    /// Raw value of the `EbayCategory` whose rules produced `title`. Stored as a
+    /// plain string, not the enum, so a category that is later renamed or removed
+    /// degrades to "unknown" instead of failing the whole record's decode.
+    var category: String?
+
+    /// An empty record is never written to disk, matching `CardTraits`.
+    var isEmpty: Bool { (title?.isEmpty ?? true) && !listed }
+
+    /// The category whose rules generated this title, when it is still a
+    /// category the app offers.
+    var ebayCategory: EbayCategory? {
+        category.flatMap(EbayCategory.init(rawValue:))
+    }
+
+    init(
+        title: String? = nil,
+        listed: Bool = false,
+        listedAt: Date? = nil,
+        updatedAt: Date? = nil,
+        category: String? = nil
+    ) {
+        self.title = title
+        self.listed = listed
+        self.listedAt = listedAt
+        self.updatedAt = updatedAt
+        self.category = category
+    }
+
+    // Swift's synthesized `Decodable` ignores default property values and calls
+    // `decode(_:forKey:)` for every non-optional property, so adding a field
+    // later would throw `keyNotFound` on every record already on disk. Decoding
+    // each key with `decodeIfPresent` keeps older files readable.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        listed = try container.decodeIfPresent(Bool.self, forKey: .listed) ?? false
+        listedAt = try container.decodeIfPresent(Date.self, forKey: .listedAt)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+    }
+}
+
 struct CardDetails {
     var year: String = "Unknown"
     var lastName: String = "Unknown"

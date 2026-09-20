@@ -9,6 +9,7 @@ struct EbayTitleResult: Identifiable {
 }
 
 @Observable
+@MainActor
 final class EbayTitlesViewModel {
 
     var directoryPath: String = SettingsStore.shared.incomingDirectory.path
@@ -16,10 +17,10 @@ final class EbayTitlesViewModel {
     var pairs: [CardPair] = []
     var visiblePairs: [CardPair] = []
     private var pairsByID: [CardPair.ID: CardPair] = [:]
+    /// Generated results are keyed by front filename; listing records are keyed
+    /// by base name, so this bridges the two.
+    private var pairsByFrontName: [String: CardPair] = [:]
     var filterText: String = "" { didSet { scheduleFilterUpdate() } }
-    var filterPlayer: String = "" { didSet { scheduleFilterUpdate() } }
-    var filterYear: String = "" { didSet { scheduleFilterUpdate() } }
-    var filterSet: String = "" { didSet { scheduleFilterUpdate() } }
     private var filterDebounceTask: Task<Void, Never>?
     var sortField: CardPairSortField = .name {
         didSet {
@@ -33,13 +34,22 @@ final class EbayTitlesViewModel {
             syncSelectionWithVisiblePairs()
         }
     }
-    var selectedTraitFilters: Set<CardTrait> = [] {
+    /// eBay Titles works on raw scans, so filename-derived filters don't apply
+    /// here; hiding what's already been listed is the filter that matters.
+    var hideListed: Bool = SettingsStore.shared.hideListedEbayTitles {
         didSet {
+            SettingsStore.shared.hideListedEbayTitles = hideListed
             updateVisiblePairs()
             syncSelectionWithVisiblePairs()
         }
     }
-    var checkedIDs: Set<CardPair.ID> = []
+    var listedPairs: Set<String> = []
+    var selectedIDs: Set<CardPair.ID> = [] {
+        didSet {
+            showingBack = false
+            updateSelectionMetadata()
+        }
+    }
 
     var category: EbayCategory = .sportsCards
     var setOverride: String = ""
@@ -57,16 +67,19 @@ final class EbayTitlesViewModel {
 
     var showingBack: Bool = false
     var selectedPairID: CardPair.ID? {
-        didSet {
-            showingBack = false
-            updateSelectedTraits()
+        get { selectedIDs.count == 1 ? selectedIDs.first : nil }
+        set {
+            if let newValue { selectedIDs = [newValue] }
+            else { selectedIDs = [] }
         }
     }
     var selectedTraits: CardTraits = CardTraits()
+    var selectedListing: CardListing = CardListing()
     var previewRevision: Int = 0
 
     private let watcher = DirectoryWatcher()
     private let metadataStore = CardMetadataStore(directoryURL: SettingsStore.shared.incomingDirectory)
+    private let listingStore = CardListingStore(directoryURL: SettingsStore.shared.incomingDirectory)
     private var debounceTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var refreshGeneration = 0
@@ -74,13 +87,18 @@ final class EbayTitlesViewModel {
     init() {
         startWatching()
         refreshImages()
-        NotificationCenter.default.addObserver(forName: .goToDirectory, object: nil, queue: .main) { [self] note in
-            if let dir = note.object as? QuickDirectory {
-                switchTo(dir)
+        // Both observers are delivered on `.main`, so the blocks are already on the
+        // main actor by the time they run.
+        NotificationCenter.default.addObserver(forName: .goToDirectory, object: nil, queue: .main) { [weak self] note in
+            guard let dir = note.object as? QuickDirectory else { return }
+            MainActor.assumeIsolated {
+                self?.switchTo(dir)
             }
         }
-        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [self] _ in
-            refreshImages()
+        NotificationCenter.default.addObserver(forName: .refreshImages, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshImages()
+            }
         }
     }
 
@@ -99,11 +117,16 @@ final class EbayTitlesViewModel {
         guard let pair = selectedPair else { return nil }
         return showingBack ? pair.back : pair.front
     }
-    var checkedPairs: [CardPair] { pairs.filter { checkedIDs.contains($0.id) } }
+    var selectedPairs: [CardPair] { visiblePairs.filter { selectedIDs.contains($0.id) } }
     var titlesCSVURL: URL { currentDirectory.appendingPathComponent("description.csv") }
     var hasSavedTitles: Bool { FileManager.default.fileExists(atPath: titlesCSVURL.path) }
     var hasActiveFilter: Bool {
-        !filterText.isEmpty || !filterPlayer.isEmpty || !filterYear.isEmpty || !filterSet.isEmpty || !selectedTraitFilters.isEmpty
+        !filterText.isEmpty || hideListed
+    }
+    var hiddenListedCount: Int {
+        pairs.reduce(into: 0) { count, pair in
+            if listedPairs.contains(pair.baseName) { count += 1 }
+        }
     }
 
     // MARK: - Directory
@@ -120,8 +143,7 @@ final class EbayTitlesViewModel {
 
     func navigateToDirectory(_ directory: URL) {
         directoryPath = directory.standardized.path
-        checkedIDs = []
-        selectedPairID = nil
+        selectedIDs = []
         showingBack = false
         refreshImages()
     }
@@ -148,10 +170,11 @@ final class EbayTitlesViewModel {
             pairs = []; return
         }
         metadataStore.load(directoryURL: dir)
+        listingStore.load(directoryURL: dir)
         startWatching()
 
         if let cachedIndex = CardDirectoryIndexStore.cachedIndex(for: dir) {
-            applyDirectoryIndex(cachedIndex, pruneMetadata: false, updateRecentChecks: false)
+            applyDirectoryIndex(cachedIndex, pruneMetadata: false)
             if !silent {
                 log("Loaded \(cachedIndex.pairs.count) cached pair(s); verifying folder...")
             }
@@ -164,16 +187,14 @@ final class EbayTitlesViewModel {
                 CardDirectoryIndexStore.scanDirectory(dir)
             }.value
 
-            await MainActor.run {
-                guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
-                let previousPairIDs = self.pairs.map(\.id)
-                self.applyDirectoryIndex(index, pruneMetadata: true, updateRecentChecks: true)
-                Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
-                if !silent {
-                    self.log("Loaded \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
-                } else if previousPairIDs != index.pairs.map(\.id) {
-                    self.log("Updated \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
-                }
+            guard !Task.isCancelled, self.refreshGeneration == generation, self.currentDirectory == dir else { return }
+            let previousPairIDs = self.pairs.map(\.id)
+            self.applyDirectoryIndex(index, pruneMetadata: true)
+            Task.detached(priority: .background) { CardDirectoryIndexStore.saveCacheIfNeeded(for: index) }
+            if !silent {
+                self.log("Loaded \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
+            } else if previousPairIDs != index.pairs.map(\.id) {
+                self.log("Updated \(index.pairs.count) pair(s) from \(dir.lastPathComponent).")
             }
         }
     }
@@ -194,18 +215,14 @@ final class EbayTitlesViewModel {
                     try ImageEditingService.rotateClockwise(fileURL: previewURL)
                 }.value
 
-                await MainActor.run {
-                    CardPreviewView.invalidateCache(for: previewURL)
-                    self.previewRevision += 1
-                    log("Rotated \(previewURL.lastPathComponent)")
-                    isBusy = false
-                    refreshImages(silent: true)
-                }
+                CardPreviewView.invalidateCache(for: previewURL)
+                self.previewRevision += 1
+                log("Rotated \(previewURL.lastPathComponent)")
+                isBusy = false
+                refreshImages(silent: true)
             } catch {
-                await MainActor.run {
-                    log("Rotate failed: \(error.localizedDescription)")
-                    isBusy = false
-                }
+                log("Rotate failed: \(error.localizedDescription)")
+                isBusy = false
             }
         }
     }
@@ -231,36 +248,33 @@ final class EbayTitlesViewModel {
                     outputDirectory: destination,
                     token: token
                 )
-                await MainActor.run {
-                    if !output.isEmpty { log(output) }
-                    log("Downloaded PSA cert \(trimmedCert) to \(destination.lastPathComponent)")
-                    isBusy = false
-                    refreshImages()
-                }
+                if !output.isEmpty { log(output) }
+                log("Downloaded PSA cert \(trimmedCert) to \(destination.lastPathComponent)")
+                isBusy = false
+                refreshImages()
             } catch {
-                await MainActor.run {
-                    log("PSA download failed: \(error.localizedDescription)")
-                    isBusy = false
-                }
+                log("PSA download failed: \(error.localizedDescription)")
+                isBusy = false
             }
         }
     }
 
     // MARK: - Selection
 
-    func selectAll() { checkedIDs = Set(visiblePairs.map(\.id)) }
-    func selectNone() { checkedIDs = [] }
+    func selectAll() { selectedIDs = Set(visiblePairs.map(\.id)) }
+    func selectNone() { selectedIDs = [] }
 
     func deleteSelectedCard() {
-        guard let selectedPair else { return }
-        deletePairs([selectedPair])
-        selectedPairID = nil
+        deleteSelectedPairs()
     }
 
     func deleteSelectedPairs() {
-        deletePairs(checkedPairs)
-        checkedIDs = []
-        selectedPairID = nil
+        deleteCards(selectedPairs)
+    }
+
+    func deleteCards(_ targets: [CardPair]) {
+        deletePairs(targets)
+        selectedIDs = []
         refreshImages()
     }
 
@@ -278,80 +292,131 @@ final class EbayTitlesViewModel {
                 }
             }
             metadataStore.removeMetadata(for: pair)
+            listingStore.removeListing(for: pair)
         }
         let pairWord = toDelete.count == 1 ? "pair" : "pairs"
         log("Moved \(moved) file(s) to Trash from \(toDelete.count) \(pairWord)" + (failed.isEmpty ? "" : "; \(failed.count) failed"))
         for (name, err) in failed { log("  ✗ \(name): \(err)") }
     }
-    func toggleCheck(_ pair: CardPair) {
-        if checkedIDs.contains(pair.id) { checkedIDs.remove(pair.id) }
-        else { checkedIDs.insert(pair.id) }
-    }
-
     func toggleTrait(_ trait: CardTrait) {
         guard let selectedPair else { return }
         let newValue = !metadataStore.traits(for: selectedPair).contains(trait)
         metadataStore.set(trait, to: newValue, for: selectedPair)
-        updateSelectedTraits()
+        updateSelectionMetadata()
         updateVisiblePairs()
         syncSelectionWithVisiblePairs()
     }
 
-    func toggleTraitFilter(_ trait: CardTrait) {
-        if selectedTraitFilters.contains(trait) {
-            selectedTraitFilters.remove(trait)
-        } else {
-            selectedTraitFilters.insert(trait)
-        }
-    }
-
     func clearFilters() {
         filterText = ""
-        filterPlayer = ""
-        filterYear = ""
-        filterSet = ""
-        selectedTraitFilters = []
+    }
+
+    // MARK: - Listing records
+
+    func listing(for pair: CardPair) -> CardListing {
+        listingStore.listing(for: pair)
+    }
+
+    /// Marks or unmarks cards as listed. A mixed selection lands on one
+    /// consistent state, taken from the first card in the group.
+    func toggleListed(_ targets: [CardPair]) {
+        guard let first = targets.first else { return }
+        let newValue = !listingStore.listing(for: first).listed
+        for pair in targets {
+            listingStore.setListed(newValue, for: pair)
+        }
+        updateListedPairs()
+        updateSelectionMetadata()
+        updateVisiblePairs()
+        syncSelectionWithVisiblePairs()
+        let cardWord = targets.count == 1 ? "card" : "cards"
+        log("\(newValue ? "Marked" : "Unmarked") \(targets.count) \(cardWord) as listed")
+    }
+
+    // MARK: - Move cards
+
+    func movePairsToSales(_ targets: [CardPair]) {
+        movePairs(targets, to: SettingsStore.shared.currentSalesDirectory)
+    }
+
+    func movePairsToCollection(_ targets: [CardPair]) {
+        movePairs(targets, to: SettingsStore.shared.existingCardsDirectory)
+    }
+
+    private func movePairs(_ targets: [CardPair], to dest: URL) {
+        try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        var moved = 0
+        var skipped = 0
+        for pair in targets {
+            var movedFilesForPair = 0
+            for source in [pair.front, pair.back] {
+                let target = dest.appendingPathComponent(source.lastPathComponent)
+                if source.standardized == target.standardized { skipped += 1; continue }
+                do {
+                    if FileManager.default.fileExists(atPath: target.path) {
+                        try FileManager.default.removeItem(at: target)
+                    }
+                    try FileManager.default.moveItem(at: source, to: target)
+                    moved += 1
+                    movedFilesForPair += 1
+                } catch {
+                    log("Move failed for \(source.lastPathComponent): \(error.localizedDescription)")
+                    skipped += 1
+                }
+            }
+            // Both halves landed, so the card's traits and listing record follow it.
+            if movedFilesForPair == 2 {
+                metadataStore.moveMetadata(for: pair, to: dest)
+                listingStore.moveListing(for: pair, to: dest)
+            }
+        }
+        log("Move complete: \(moved) moved, \(skipped) skipped → \(dest.lastPathComponent)")
+        refreshImages()
     }
 
     private func syncSelectionWithVisiblePairs() {
-        if let selectedPairID, visiblePairs.contains(where: { $0.id == selectedPairID }) {
-            return
+        let validIDs = selectedIDs.filter { id in visiblePairs.contains(where: { $0.id == id }) }
+        if !validIDs.isEmpty {
+            if validIDs != selectedIDs { selectedIDs = validIDs }
+        } else {
+            selectedIDs = visiblePairs.first.map { [$0.id] } ?? []
+            showingBack = false
         }
-
-        selectedPairID = visiblePairs.first?.id
-        showingBack = false
     }
 
     private func updateVisiblePairs() {
         visiblePairs = filteredAndSortedPairs()
     }
 
-    private func updateSelectedTraits() {
+    private func updateSelectionMetadata() {
         guard let selectedPair else {
             selectedTraits = CardTraits()
+            selectedListing = CardListing()
             return
         }
         selectedTraits = metadataStore.traits(for: selectedPair)
+        selectedListing = listingStore.listing(for: selectedPair)
+
+        // Show the rules this card's title was generated under. Cards with no
+        // recorded category leave the picker where the user last put it.
+        if let storedCategory = selectedListing.ebayCategory, storedCategory != category {
+            category = storedCategory
+        }
+    }
+
+    private func updateListedPairs() {
+        listedPairs = listingStore.listedBaseNames
     }
 
     private func filteredAndSortedPairs() -> [CardPair] {
         let text = filterText.lowercased()
-        let player = filterPlayer.lowercased()
-        let year = filterYear
-        let set = filterSet.lowercased()
 
         let matchingPairs = pairs.filter { pair in
-            (text.isEmpty   || pair.displayName.lowercased().contains(text)) &&
-            (player.isEmpty || pair.parsedPlayer.contains(player)) &&
-            (year.isEmpty   || pair.parsedYear.contains(year)) &&
-            (set.isEmpty    || pair.parsedSetText.contains(set))
+            (text.isEmpty || pair.displayName.lowercased().contains(text)) &&
+            (!hideListed  || !listedPairs.contains(pair.baseName))
         }
 
-        let metadataMatchingPairs = matchingPairs.filter {
-            metadataStore.matches($0, selectedTraits: selectedTraitFilters)
-        }
-
-        return metadataMatchingPairs.sorted { lhs, rhs in
+        return matchingPairs.sorted { lhs, rhs in
             switch sortOrder {
             case .ascending:
                 return sortLess(lhs, rhs)
@@ -383,46 +448,43 @@ final class EbayTitlesViewModel {
         }
     }
 
-    private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool, updateRecentChecks: Bool) {
-        let prevChecked = checkedIDs
-        let prevCheckedFronts = pairs
-            .filter { prevChecked.contains($0.id) }
-            .map { $0.front.lastPathComponent }
-
+    private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool) {
+        let prevIDs = selectedIDs
         childDirectories = index.childDirectories
         pairs = index.pairs
         pairsByID = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0) })
+        pairsByFrontName = Dictionary(pairs.map { ($0.front.lastPathComponent, $0) }) { first, _ in first }
         if pruneMetadata {
-            metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
+            let validBaseNames = Set(index.pairs.map(\.baseName))
+            metadataStore.pruneMetadata(keepingBaseNames: validBaseNames)
+            listingStore.pruneListings(keepingBaseNames: validBaseNames)
         }
+        updateListedPairs()
         updateVisiblePairs()
 
-        if updateRecentChecks {
-            if prevChecked.isEmpty {
-                checkedIDs = Set(pairs.filter { isRecentPair($0) }.map(\.id))
-            } else {
-                checkedIDs = Set(pairs.filter { prevCheckedFronts.contains($0.front.lastPathComponent) }.map(\.id))
-            }
-        } else {
-            checkedIDs = Set(pairs.filter { prevChecked.contains($0.id) }.map(\.id))
-        }
-
+        let stillValid = prevIDs.filter { pairsByID[$0] != nil }
+        if stillValid != selectedIDs { selectedIDs = stillValid }
         syncSelectionWithVisiblePairs()
     }
 
     // MARK: - Generate
 
     func generateTitles() {
-        guard !isBusy, !checkedPairs.isEmpty else { return }
+        let targets = selectedPairs
+        guard !isBusy, !targets.isEmpty else { return }
+        // One card is an inline edit of that card, not a batch: it updates the
+        // title shown in the detail pane and leaves the results window alone.
+        let isSingleCard = targets.count == 1
         isBusy = true
         progress = 0
-        results = []
-        log("Starting \(category.rawValue) — \(checkedPairs.count) pair(s)…")
+        if !isSingleCard { results = [] }
+        log("Starting \(category.rawValue) — \(targets.count) pair(s)…")
 
-        let targets = checkedPairs
         let cat = category
-        let setOvr = setOverride.trimmingCharacters(in: .whitespaces)
-        let varOvr = varietyOverride.trimmingCharacters(in: .whitespaces)
+        // Overrides only exist for categories whose UI shows them; otherwise a
+        // value left over from a previous category would leak into the prompt.
+        let setOvr = cat.showsOverrides ? setOverride.trimmingCharacters(in: .whitespaces) : ""
+        let varOvr = cat.showsOverrides ? varietyOverride.trimmingCharacters(in: .whitespaces) : ""
         let extraRules = supplementalRules.trimmingCharacters(in: .whitespacesAndNewlines)
         let total = Double(targets.count)
 
@@ -460,38 +522,49 @@ final class EbayTitlesViewModel {
                 // Prime up to maxConcurrent tasks
                 for _ in 0..<min(maxConcurrent, targets.count) {
                     guard let (index, pair) = iterator.next() else { break }
-                    let frontName = pair.front.lastPathComponent
-                    await MainActor.run { log("→ \(frontName)") }
+                    log("→ \(pair.front.lastPathComponent)")
                     group.addTask { await runOne(index, pair) }
                 }
 
                 // Drain: as each completes, log it and launch the next one
                 while let (idx, r) = await group.next() {
                     indexed.append((idx, r))
+                    storeTitle(r, category: cat)
                     completed += 1
-                    let done = completed
-                    let p = Double(done) / total
-                    await MainActor.run {
-                        progress = p
-                        log("[\(done)/\(Int(total))] \(r.frontName): \(r.title)")
-                    }
+                    progress = Double(completed) / total
+                    log("[\(completed)/\(Int(total))] \(r.frontName): \(r.title)")
                     if let (index, pair) = iterator.next() {
-                        let frontName = pair.front.lastPathComponent
-                        await MainActor.run { log("→ \(frontName)") }
+                        log("→ \(pair.front.lastPathComponent)")
                         group.addTask { await runOne(index, pair) }
                     }
                 }
             }
 
             let sorted = indexed.sorted { $0.0 > $1.0 }.map(\.1)
-            await MainActor.run {
+            isBusy = false
+            progress = 1.0
+            // The title is already saved against the card by `storeTitle`, so
+            // description.csv only needs the matching rows merged in.
+            upsertCSVRows(sorted)
+            if !isSingleCard {
                 results = sorted
-                isBusy = false
-                progress = 1.0
-                saveCSV(sorted)
                 NotificationCenter.default.post(name: .showEbayResultsWindow, object: nil)
             }
         }
+    }
+
+    /// Commits a hand-edited title for the selected card.
+    func updateSelectedTitle(_ title: String) {
+        guard let pair = selectedPair else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != (listingStore.listing(for: pair).title ?? "") else { return }
+
+        listingStore.setTitle(trimmed, for: pair)
+        updateSelectionMetadata()
+        if !trimmed.isEmpty {
+            upsertCSVRows([EbayTitleResult(frontName: pair.front.lastPathComponent, title: trimmed)])
+        }
+        log("Updated title for \(pair.front.lastPathComponent)")
     }
 
     func displaySavedTitles() {
@@ -499,7 +572,16 @@ final class EbayTitlesViewModel {
         do {
             let loaded = try loadCSVResults()
             results = loaded
-            log("Loaded \(loaded.count) title(s) from description.csv")
+            // Migrate titles written before listing records existed.
+            var backfilled = 0
+            for result in loaded {
+                guard let pair = pairsByFrontName[result.frontName],
+                      listingStore.listing(for: pair).title == nil else { continue }
+                storeTitle(result)
+                backfilled += 1
+            }
+            log("Loaded \(loaded.count) title(s) from description.csv"
+                + (backfilled > 0 ? "; saved \(backfilled) to \(CardListingStore.fileName)" : ""))
             NotificationCenter.default.post(name: .showEbayResultsWindow, object: nil)
         } catch {
             log("Could not load description.csv: \(error.localizedDescription)")
@@ -507,7 +589,35 @@ final class EbayTitlesViewModel {
     }
 
     func saveEditedTitles() {
-        saveCSV(results)
+        for result in results { storeTitle(result) }
+        upsertCSVRows(results)
+    }
+
+    /// Merges rows into description.csv instead of replacing the file. Writing
+    /// it wholesale meant generating or editing a handful of cards discarded the
+    /// titles already saved for every other card in the folder.
+    private func upsertCSVRows(_ rows: [EbayTitleResult]) {
+        let usableRows = rows.filter { !$0.title.hasPrefix("ERROR:") }
+        guard !usableRows.isEmpty else { return }
+
+        var merged = (try? loadCSVResults()) ?? []
+        for row in usableRows {
+            if let index = merged.firstIndex(where: { $0.frontName == row.frontName }) {
+                merged[index].title = row.title
+            } else {
+                merged.insert(row, at: 0)
+            }
+        }
+        saveCSV(merged)
+    }
+
+    /// Persists a generated or hand-edited title against its card. Errors are
+    /// already surfaced in the log and aren't worth recording.
+    private func storeTitle(_ result: EbayTitleResult, category: EbayCategory? = nil) {
+        guard !result.title.hasPrefix("ERROR:"),
+              let pair = pairsByFrontName[result.frontName] else { return }
+        listingStore.setTitle(result.title, category: category, for: pair)
+        updateSelectionMetadata()
     }
 
     private func saveCSV(_ rows: [EbayTitleResult]) {
@@ -519,7 +629,7 @@ final class EbayTitlesViewModel {
         }
         do {
             try csv.write(to: titlesCSVURL, atomically: true, encoding: .utf8)
-            log("Saved \(rows.count) titles to description.csv")
+            log("description.csv updated — \(rows.count) title(s) total")
         } catch {
             log("Could not save CSV: \(error.localizedDescription)")
         }
@@ -602,22 +712,19 @@ final class EbayTitlesViewModel {
 
     private func startWatching() {
         watcher.watch(url: currentDirectory)
+        // DirectoryWatcher's DispatchSource is created with `queue: .main`, so this
+        // handler always arrives on the main thread.
         watcher.onChange = { [weak self] in
-            self?.debounceTask?.cancel()
-            self?.debounceTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled else { return }
-                self?.refreshImages(silent: true)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.debounceTask?.cancel()
+                self.debounceTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.refreshImages(silent: true)
+                }
             }
         }
-    }
-
-    private func isRecentPair(_ pair: CardPair, maxAgeSeconds: TimeInterval = 3600) -> Bool {
-        let mtime = { (url: URL) -> Date in
-            (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-        }
-        let latest = max(mtime(pair.front), mtime(pair.back))
-        return latest.timeIntervalSinceNow >= -maxAgeSeconds
     }
 
 }

@@ -97,11 +97,12 @@ struct CardNamerApp: App {
     }
 }
 
+@MainActor
 final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
     private var didPlaceMainWindow = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.configureStartupWindowIfNeeded()
         }
     }
@@ -124,7 +125,7 @@ final class CardNamerAppDelegate: NSObject, NSApplicationDelegate {
     private func configureStartupWindowIfNeeded() {
         guard !didPlaceMainWindow else { return }
         guard let window = NSApplication.shared.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) else {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.configureStartupWindowIfNeeded()
             }
             return

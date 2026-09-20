@@ -291,6 +291,302 @@ struct TraitChip: View {
     }
 }
 
+// MARK: - Sidebar search/filter cluster
+
+/// Shared control language for the sidebar's search field, filter group, and
+/// clear button so they read as one cluster instead of stacked widgets.
+private enum FilterControlMetrics {
+    static let height: CGFloat = 26
+    static let radius: CGFloat = 8
+}
+
+/// Native-style search field: leading magnifying glass, pill shape.
+struct SidebarSearchField: View {
+    @Binding var text: String
+    let placeholder: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: FilterControlMetrics.height)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().strokeBorder(Color.secondary.opacity(0.25))
+        }
+    }
+}
+
+/// Player / Year / Set filters as one bordered group with hairline dividers,
+/// instead of three separate boxes.
+struct SidebarFilterFieldGroup: View {
+    @Binding var player: String
+    @Binding var year: String
+    @Binding var set: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TextField("Player", text: $player)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity)
+
+            Divider().frame(height: 14)
+
+            TextField("Year", text: $year)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 4)
+                .frame(width: 40)
+
+            Divider().frame(height: 14)
+
+            TextField("Set / Series", text: $set)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity)
+        }
+        .frame(height: FilterControlMetrics.height)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: FilterControlMetrics.radius))
+        .overlay {
+            RoundedRectangle(cornerRadius: FilterControlMetrics.radius)
+                .strokeBorder(Color.secondary.opacity(0.25))
+        }
+    }
+}
+
+/// Small round icon button matching the field height, replacing the
+/// full-size "Clear" push button that used to dwarf the compact fields.
+struct SidebarClearFilterButton: View {
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isEnabled ? Color.accentColor : Color.secondary.opacity(0.35))
+                .frame(width: FilterControlMetrics.height, height: FilterControlMetrics.height)
+        }
+        .buttonStyle(.plain)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(Circle())
+        .overlay {
+            Circle().strokeBorder(Color.secondary.opacity(0.25))
+        }
+        .disabled(!isEnabled)
+        .help("Clear filters")
+    }
+}
+
+/// Hides cards already marked as listed. Shares the filter cluster's control
+/// language so it reads as part of the same row.
+struct SidebarListedToggle: View {
+    @Binding var isOn: Bool
+    let hiddenCount: Int
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Label(
+                isOn ? "Listed Hidden (\(hiddenCount))" : "Hide Listed (\(hiddenCount))",
+                systemImage: isOn ? "eye.slash.fill" : "eye.slash"
+            )
+            .font(.caption)
+            .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(isOn ? .accentColor : .secondary)
+        .disabled(hiddenCount == 0 && !isOn)
+        .help(isOn ? "Show cards marked as listed" : "Hide cards marked as listed")
+    }
+}
+
+// MARK: - Listing record
+
+/// Tooltip text for a sidebar row backed by a listing record.
+func listingRowTooltip(_ listing: CardListing) -> String? {
+    guard !listing.isEmpty else { return nil }
+    var lines: [String] = []
+    if let title = listing.title { lines.append(title) }
+    if listing.listed {
+        if let listedAt = listing.listedAt {
+            lines.append("Listed \(ListingDateFormat.medium.string(from: listedAt))")
+        } else {
+            lines.append("Listed")
+        }
+    }
+    return lines.isEmpty ? nil : lines.joined(separator: "\n")
+}
+
+func listedMenuTitle(isListed: Bool, count: Int) -> String {
+    let verb = isListed ? "Unmark" : "Mark"
+    guard count > 1 else { return "\(verb) as Listed" }
+    return "\(verb) \(count) Cards as Listed"
+}
+
+enum ListingDateFormat {
+    static let medium: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter
+    }()
+}
+
+/// The stored eBay title for the selected card, with when it was listed.
+/// Renders nothing for a card that has no record yet, so the detail pane is
+/// unchanged for unprocessed cards.
+struct ListingInfoBar: View {
+    /// Fixed so `CardNamerDetail`, which lays its panes out by arithmetic
+    /// rather than by flexing, can reserve exactly the right space.
+    static let height: CGFloat = 62
+
+    /// eBay rejects titles longer than this.
+    static let maxTitleLength = EbayTitleLimit.maxCharacters
+
+    let listing: CardListing
+    /// Card Namer shows the title read-only; the eBay Titles pane owns editing,
+    /// so description.csv is only ever rewritten from one place.
+    var isEditable: Bool = false
+    var onCommitTitle: ((String) -> Void)? = nil
+
+    @State private var draft: String
+    @FocusState private var titleIsFocused: Bool
+
+    init(listing: CardListing, isEditable: Bool = false, onCommitTitle: ((String) -> Void)? = nil) {
+        self.listing = listing
+        self.isEditable = isEditable
+        self.onCommitTitle = onCommitTitle
+        _draft = State(initialValue: listing.title ?? "")
+    }
+
+    private var isOverLimit: Bool { draft.count > Self.maxTitleLength }
+
+    @ViewBuilder
+    var body: some View {
+        if isEditable || !listing.isEmpty {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if isEditable {
+                        TextField("eBay title", text: $draft)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .focused($titleIsFocused)
+                            .onSubmit { commit() }
+                            .onChange(of: titleIsFocused) { _, focused in
+                                if !focused { commit() }
+                            }
+                    } else if let title = listing.title {
+                        Text(title)
+                            .font(.system(size: 12))
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
+
+                    HStack(spacing: 8) {
+                        status
+                        characterCount
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    let title = isEditable ? draft : (listing.title ?? "")
+                    guard !title.isEmpty else { return }
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(title, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .disabled(currentTitle.isEmpty)
+                .help("Copy title")
+
+                Button {
+                    guard let url = CardNameBuilder.ebayURL(fromBaseName: currentTitle) else { return }
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .disabled(currentTitle.isEmpty)
+                .help("Search eBay for this title")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .top)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .overlay(alignment: .top) { Divider() }
+            // A title generated while this card stays selected has to reach the
+            // field; the guard keeps it from stomping on text being typed.
+            .onChange(of: listing) { _, newValue in
+                let stored = newValue.title ?? ""
+                if !titleIsFocused, stored != draft { draft = stored }
+            }
+        }
+    }
+
+    private var currentTitle: String {
+        isEditable ? draft : (listing.title ?? "")
+    }
+
+    private func commit() {
+        onCommitTitle?(draft)
+    }
+
+    @ViewBuilder
+    private var characterCount: some View {
+        if currentTitle.isEmpty {
+            EmptyView()
+        } else if isOverLimit {
+            Label(
+                "\(draft.count)/\(Self.maxTitleLength) · over eBay limit",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.red)
+        } else {
+            Text("\(currentTitle.count)/\(Self.maxTitleLength)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if listing.listed {
+            Label(
+                listing.listedAt.map { "Listed \(ListingDateFormat.medium.string(from: $0))" } ?? "Listed",
+                systemImage: "checkmark.seal.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.green)
+        } else if listing.title != nil {
+            Label("Title saved · not yet listed", systemImage: "tag")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            Label("No title yet", systemImage: "tag")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+}
+
 // MARK: - Sidebar folder selection
 
 struct SidebarDirectoryMenu: View {
@@ -400,16 +696,23 @@ struct CardNamerSidebar: View {
 
                 Section {
                     ForEach(vm.visiblePairs) { pair in
+                        let isListed = vm.listedPairs.contains(pair.baseName)
                         Label {
                             HStack(spacing: 4) {
                                 Text(pair.displayName)
                                     .font(.system(size: 12))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                                    .strikethrough(isListed)
                                 if vm.pairsWithTraits.contains(pair.baseName) {
                                     Image(systemName: "tag.fill")
                                         .font(.system(size: 9))
                                         .foregroundStyle(.secondary)
+                                }
+                                if isListed {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.green)
                                 }
                             }
                         } icon: {
@@ -417,6 +720,7 @@ struct CardNamerSidebar: View {
                                 .foregroundStyle(.secondary)
                         }
                         .tag(pair.id)
+                        .help(listingRowTooltip(vm.listing(for: pair)) ?? pair.displayName)
                         .contextMenu {
                             Button {
                                 // If this pair is part of a multi-selection, name all selected; else just this pair
@@ -434,6 +738,20 @@ struct CardNamerSidebar: View {
                                 )
                             }
                             .disabled(vm.isBusy)
+
+                            Divider()
+
+                            Button {
+                                vm.toggleListed(contextPairs(for: pair))
+                            } label: {
+                                Label(
+                                    listedMenuTitle(
+                                        isListed: vm.listing(for: pair).listed,
+                                        count: contextPairs(for: pair).count
+                                    ),
+                                    systemImage: vm.listing(for: pair).listed ? "xmark.seal" : "checkmark.seal"
+                                )
+                            }
 
                             Divider()
 
@@ -576,27 +894,15 @@ struct CardNamerSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
-            TextField("Search filenames", text: $vm.filterText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
-                .padding(.top, 6)
+            SidebarSearchField(text: $vm.filterText, placeholder: "Search filenames")
+                .padding(.top, 8)
             HStack(spacing: 6) {
-                TextField("Player", text: $vm.filterPlayer)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                TextField("Year", text: $vm.filterYear)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .frame(maxWidth: 56)
-                TextField("Set / Series", text: $vm.filterSet)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                Button("Clear") {
+                SidebarFilterFieldGroup(player: $vm.filterPlayer, year: $vm.filterYear, set: $vm.filterSet)
+                SidebarClearFilterButton(isEnabled: vm.hasActiveFilter) {
                     vm.clearFilters()
                 }
-                .disabled(!vm.hasActiveFilter)
             }
-            .padding(.top, 4)
+            .padding(.top, 6)
             HStack(spacing: 8) {
                 Picker("Sort By", selection: $vm.sortField) {
                     ForEach(CardPairSortField.allCases) { field in
@@ -620,15 +926,21 @@ struct CardNamerSidebar: View {
                     .monospacedDigit()
             }
             .controlSize(.small)
+            .padding(.top, 8)
+            HStack(spacing: 8) {
+                SidebarListedToggle(isOn: $vm.hideListed, hiddenCount: vm.hiddenListedCount)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 6)
             TraitFilterBar(
                 selectedTraits: vm.selectedTraitFilters,
                 onToggle: vm.toggleTraitFilter
             )
-            .padding(.top, 4)
+            .padding(.top, 8)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
@@ -646,10 +958,15 @@ struct CardNamerDetail: View {
 
     @Bindable var vm: CardNamerViewModel
 
+    private var showsListingBar: Bool {
+        vm.selectedIDs.count <= 1 && !vm.selectedListing.isEmpty
+    }
+
     var body: some View {
         GeometryReader { proxy in
+            let listingBarHeight = showsListingBar ? ListingInfoBar.height : 0
             let previewHeight = max(
-                proxy.size.height - Layout.actionHeight,
+                proxy.size.height - Layout.actionHeight - listingBarHeight,
                 Layout.minimumPreviewHeight
             )
 
@@ -697,6 +1014,10 @@ struct CardNamerDetail: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: previewHeight)
                     .clipped()
+
+                if showsListingBar {
+                    ListingInfoBar(listing: vm.selectedListing)
+                }
 
                 actionArea
                     .frame(height: Layout.actionHeight)
@@ -806,6 +1127,39 @@ struct CardNamerDetail: View {
 struct EbayTitlesSidebar: View {
     @Bindable var vm: EbayTitlesViewModel
     @State private var showDeleteConfirmation = false
+    @State private var pendingDeletePair: CardPair?
+
+    private var hasMultipleSelectedCards: Bool {
+        vm.selectedIDs.count > 1
+    }
+
+    /// Right-clicking a row that's part of the current selection acts on the
+    /// whole selection; right-clicking outside it acts on just that row.
+    private func contextPairs(for pair: CardPair) -> [CardPair] {
+        hasMultipleSelectedCards && vm.selectedIDs.contains(pair.id) ? vm.selectedPairs : [pair]
+    }
+
+    private func copyCardNames(_ pairs: [CardPair]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            pairs.map(\.displayName).joined(separator: "\n"),
+            forType: .string
+        )
+    }
+
+    @ViewBuilder
+    private func listedMenuItem(for pair: CardPair) -> some View {
+        let targets = contextPairs(for: pair)
+        let isListed = vm.listing(for: pair).listed
+        Button {
+            vm.toggleListed(targets)
+        } label: {
+            Label(
+                listedMenuTitle(isListed: isListed, count: targets.count),
+                systemImage: isListed ? "xmark.seal" : "checkmark.seal"
+            )
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -835,20 +1189,112 @@ struct EbayTitlesSidebar: View {
 
                 Section {
                     ForEach(vm.visiblePairs) { pair in
+                        let isListed = vm.listedPairs.contains(pair.baseName)
                         Label {
-                            Text(pair.displayName)
-                                .font(.system(size: 12))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            HStack(spacing: 4) {
+                                Text(pair.displayName)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .strikethrough(isListed)
+                                if isListed {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(.green)
+                                }
+                            }
                         } icon: {
                             Image(systemName: "photo.on.rectangle")
                                 .foregroundStyle(.secondary)
                         }
                         .tag(pair.id)
+                        .help(listingRowTooltip(vm.listing(for: pair)) ?? pair.displayName)
+                        .contextMenu {
+                            listedMenuItem(for: pair)
+
+                            Divider()
+
+                            Button {
+                                vm.movePairsToSales(contextPairs(for: pair))
+                            } label: {
+                                Label("Move to Sales", systemImage: "cart")
+                            }
+                            .disabled(vm.isBusy)
+
+                            Button {
+                                vm.movePairsToCollection(contextPairs(for: pair))
+                            } label: {
+                                Label("Move to Collection", systemImage: "archivebox")
+                            }
+                            .disabled(vm.isBusy)
+
+                            Divider()
+
+                            Button {
+                                if let gcURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.lemkesoft.graphicconverter12") {
+                                    NSWorkspace.shared.open([pair.front], withApplicationAt: gcURL, configuration: NSWorkspace.OpenConfiguration())
+                                }
+                            } label: {
+                                Label("Open in GraphicConverter", systemImage: "photo")
+                            }
+                            .disabled(hasMultipleSelectedCards)
+
+                            Button {
+                                if let image = NSImage(contentsOf: pair.front) {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.writeObjects([image])
+                                }
+                            } label: {
+                                Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                            }
+                            .disabled(hasMultipleSelectedCards)
+
+                            Button {
+                                copyCardNames(contextPairs(for: pair))
+                            } label: {
+                                Label("Copy Card Names", systemImage: "list.clipboard")
+                            }
+
+                            Button {
+                                guard let title = vm.listing(for: pair).title else { return }
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(title, forType: .string)
+                            } label: {
+                                Label("Copy Title", systemImage: "doc.on.doc")
+                            }
+                            .disabled(vm.listing(for: pair).title == nil)
+
+                            Divider()
+
+                            Button(role: .destructive) {
+                                pendingDeletePair = pair
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
             .listStyle(.sidebar)
+            .confirmationDialog(
+                pendingDeletePair.map { pair in
+                    contextPairs(for: pair).count > 1
+                        ? "Delete \(contextPairs(for: pair).count) cards?"
+                        : "Delete \(pair.displayName)?"
+                } ?? "",
+                isPresented: Binding(get: { pendingDeletePair != nil }, set: { if !$0 { pendingDeletePair = nil } }),
+                titleVisibility: .visible
+            ) {
+                if let pair = pendingDeletePair {
+                    Button("Move to Trash", role: .destructive) {
+                        vm.deleteCards(contextPairs(for: pair))
+                        pendingDeletePair = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingDeletePair = nil }
+            } message: {
+                Text("Both the front and back image files will be moved to the Trash.")
+            }
 
             Divider()
             HStack(spacing: 8) {
@@ -914,27 +1360,10 @@ struct EbayTitlesSidebar: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
-            TextField("Search filenames", text: $vm.filterText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
-                .padding(.top, 6)
-            HStack(spacing: 6) {
-                TextField("Player", text: $vm.filterPlayer)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                TextField("Year", text: $vm.filterYear)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .frame(maxWidth: 56)
-                TextField("Set / Series", text: $vm.filterSet)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                Button("Clear") {
-                    vm.clearFilters()
-                }
-                .disabled(!vm.hasActiveFilter)
-            }
-            .padding(.top, 4)
+            // No player/year/set filters here: eBay Titles runs on raw scans,
+            // and those filters parse a naming convention this input lacks.
+            SidebarSearchField(text: $vm.filterText, placeholder: "Search filenames")
+                .padding(.top, 8)
             HStack(spacing: 8) {
                 Picker("Sort By", selection: $vm.sortField) {
                     ForEach(CardPairSortField.allCases) { field in
@@ -951,22 +1380,22 @@ struct EbayTitlesSidebar: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-
+            }
+            .controlSize(.small)
+            .padding(.top, 8)
+            HStack(spacing: 8) {
+                SidebarListedToggle(isOn: $vm.hideListed, hiddenCount: vm.hiddenListedCount)
+                Spacer(minLength: 0)
                 Text("\(vm.visiblePairs.count)/\(vm.pairs.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
-            .controlSize(.small)
-            TraitFilterBar(
-                selectedTraits: vm.selectedTraitFilters,
-                onToggle: vm.toggleTraitFilter
-            )
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
@@ -999,8 +1428,27 @@ struct EbayTitlesDetail: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
 
+            if vm.selectedPair != nil {
+                ListingInfoBar(
+                    listing: vm.selectedListing,
+                    isEditable: true,
+                    onCommitTitle: vm.updateSelectedTitle
+                )
+                // Rebuild per card so an untouched draft can't follow the
+                // selection onto the next card.
+                .id(vm.selectedPairID)
+            }
+
+
             actionArea
         }
+    }
+
+    /// Singular for one card, since that path updates the title in place rather
+    /// than opening the results window.
+    private var generateButtonTitle: String {
+        if vm.isBusy { return "Generating…" }
+        return vm.selectedIDs.count == 1 ? "Generate Title" : "Generate Titles"
     }
 
     private var actionArea: some View {
@@ -1061,7 +1509,7 @@ struct EbayTitlesDetail: View {
                 Button {
                     vm.generateTitles()
                 } label: {
-                    Label(vm.isBusy ? "Generating…" : "Generate Titles", systemImage: "sparkles")
+                    Label(generateButtonTitle, systemImage: "sparkles")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)

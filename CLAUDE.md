@@ -28,6 +28,7 @@ python sale.py --date 2024-03                 # specific month
 
 python card_merge.py card*.jpg                # merge card images into grid
 python card_merge.py -e card*.jpg             # use even-numbered files
+python card_merge.py -a card*.jpg             # use every supplied scan
 
 python cropper.py -i "*.jpg"                  # auto-rotate/crop card images
 python cropper.py -i file.jpg -o              # overwrite in place
@@ -65,9 +66,17 @@ Scripts look for credentials in this priority order:
 
 **GUI apps** (`Card Namer App/`, `Ebay_Titles/`, `Letter Track App/`): PyQt5 desktop apps. `card_namer.py` uses OCR (pytesseract) + OpenAI to batch-rename card image files. `ebay_title_gui.py` generates eBay listing titles. `lettertrack.py` tracks physical mail via TinyURL-shortened tracking links.
 
-**`Neddog_Cards_App/`**: Native macOS SwiftUI app — newer rewrite combining the Card Namer (OCR + OpenAI batch rename) and eBay Titles workflows in one app. Uses the Vision framework for OCR (no pytesseract dep) and URLSession for OpenAI (gpt-4o default, model list fetched live). Open `Neddog_Cards_App/Neddog Cards.xcodeproj` in Xcode. Quick directories (in `SettingsStore.swift`): `~/incoming cards` (⌘1), `/Volumes/Dutton 2TB/Cards/Mix` (⌘2, also the `existingCardsDirectory` target for moves), `~/Sales/YYYY/MM` (⌘3, matches `sale.py`). Not sandboxed (personal tool).
+**`Neddog_Cards_App/`**: Native macOS SwiftUI app — newer rewrite combining the Card Namer (OCR + OpenAI batch rename) and eBay Titles workflows in one app. Uses the Vision framework for OCR (no pytesseract dep) and URLSession for OpenAI (gpt-4o default, model list fetched live). Open `Neddog_Cards_App/Neddog Cards.xcodeproj` in Xcode. Quick directories (in `SettingsStore.swift`): `~/incoming cards` (⌘1), `/Volumes/Dutton 2TB/Cards/Mix` (⌘2, also the `existingCardsDirectory` target for moves), `~/Sales/YYYY/MM` (⌘3, matches `sale.py`). Not sandboxed (personal tool). Build and install with `./make.sh cards`.
 
-**`card_merge.py`**: Combines front/back card photos into a grid. Defaults to odd-numbered files (fronts); `-e` flag selects even-numbered files (backs). Adjusts timestamps so the merged image sorts as newest.
+Two per-directory JSON sidecars travel with the cards and are kept deliberately separate:
+- `card_metadata.json` (`CardMetadataStore`) — card traits (auto, graded, rookie, etc.), filtered on in Card Namer mode.
+- `ebay_metadata.json` (`CardListingStore`) — the eBay listing record per card: generated/hand-edited `title`, a `listed` flag, `listedAt`, and `category` (the `EbayCategory` raw value whose rules produced the title; selecting a card sets the eBay Titles category picker back to it). Category is stored as a string, not the enum, so an unrecognized value degrades to nil instead of failing the record's decode; hand edits preserve it, CSV backfills leave it unset. Right-click a card in either mode to mark it Listed; listed rows are struck through with a green seal, the sidebar's "Hide Listed" toggle filters them out, and the selected card's title and listing date show in the right panel. `description.csv` is still written as the working export; `ebay_metadata.json` is the durable copy.
+
+Both stores are keyed by `CardPair.baseName`, and both follow a card through rename, Move to Sales, and Move to Collection. They are separate files because Swift's synthesized `Decodable` ignores default property values — adding a field to a shared file would throw `keyNotFound` on existing records, and the stores fall back to an empty file on a decode error, so a bad migration would silently wipe data. Both new types decode every key with `decodeIfPresent` for that reason; keep that pattern when adding fields.
+
+The eBay Titles sidebar intentionally omits the trait and Player/Year/Set filters that Card Namer has: those parse the `YYYY-Player-Manufacturer-Series-Number` filename convention, and eBay Titles runs on raw unnamed scans.
+
+**`card_merge.py`**: Combines card photos into a grid. Defaults to odd-numbered files (fronts); `-e` selects even-numbered files (backs), and `-a` merges every supplied scan. Adjusts timestamps so the merged image sorts as newest.
 
 **`ai_text_me.py`**: Runs via macOS cron, calls Claude API, sends result as iMessage via macOS Shortcuts.
 - **Default (no flags)**: picks a random prompt from `PROMPT_QUESTIONS` (birthday, history, science, haiku) and sends via "Send Message" shortcut. Cron: 7am daily.

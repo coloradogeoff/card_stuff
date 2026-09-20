@@ -9,7 +9,9 @@ struct QuickDirectory: Codable, Identifiable {
     var isAvailable: Bool { FileManager.default.fileExists(atPath: path) }
 }
 
-final class SettingsStore {
+/// Thread-safe: holds no stored mutable state — every property reads or writes
+/// through `UserDefaults`, which handles its own synchronization.
+final class SettingsStore: Sendable {
 
     static let shared = SettingsStore()
     private enum DirectoryNames {
@@ -18,7 +20,7 @@ final class SettingsStore {
         static let currentSales = "Current Sales (⌘3)"
     }
 
-    private let defaults = UserDefaults.standard
+    private var defaults: UserDefaults { .standard }
 
     var openAIKey: String {
         get { defaults.string(forKey: "openai_api_key") ?? "" }
@@ -33,6 +35,20 @@ final class SettingsStore {
     var psaToken: String {
         get { defaults.string(forKey: "psa_api_token") ?? "" }
         set { defaults.set(newValue, forKey: "psa_api_token") }
+    }
+
+    /// Each panel remembers its own "hide what I've already listed" state across
+    /// launches. They're separate keys rather than one shared value because each
+    /// view model reads its setting once at init; a single key would let the two
+    /// toggles drift apart in-session while overwriting each other on disk.
+    var hideListedCardNamer: Bool {
+        get { defaults.bool(forKey: "hide_listed_card_namer") }
+        set { defaults.set(newValue, forKey: "hide_listed_card_namer") }
+    }
+
+    var hideListedEbayTitles: Bool {
+        get { defaults.bool(forKey: "hide_listed_ebay_titles") }
+        set { defaults.set(newValue, forKey: "hide_listed_ebay_titles") }
     }
 
     var ebaySupplementalRules: String {

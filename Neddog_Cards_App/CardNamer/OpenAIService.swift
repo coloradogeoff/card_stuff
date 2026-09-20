@@ -93,21 +93,103 @@ enum OpenAIService {
             """
         }
 
-        let body: [String: Any] = [
+        func buildRequest(budget: Int) throws -> URLRequest {
+            var body: [String: Any] = [
+                "model": model,
+                // A title is ~30 tokens, but on GPT-5 models the reasoning tokens
+                // come out of this same budget, so leave headroom.
+                "max_completion_tokens": budget,
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user", "content": [
+                        ["type": "text", "text": "This is the front of the item."],
+                        ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(frontB64)"]],
+                    ]],
+                    ["role": "user", "content": [
+                        ["type": "text", "text": "This is the back of the item."],
+                        ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(backB64)"]],
+                    ]],
+                ],
+            ]
+            // Writing one title needs no deliberation. Without this a reasoning
+            // model can spend the entire budget thinking and return empty content
+            // with finish_reason "length".
+            if model.lowercased().hasPrefix("gpt-5") {
+                body["reasoning_effort"] = "none"
+            }
+
+            var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+            req.httpMethod = "POST"
+            req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            return req
+        }
+
+        // A 200 with empty content happens occasionally (content filter, truncation,
+        // or a plain flake). Retry once rather than surfacing a blank title.
+        var budget = 2_000
+        var lastError: Error = OpenAIError.noContent("")
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            do {
+                let title = try await requestTitle(buildRequest(budget: budget))
+                return await enforcingLengthLimit(title, key: key)
+            } catch {
+                lastError = error
+                guard case OpenAIError.noContent(let detail) = error else { throw error }
+                // Truncation, not a flake — retrying the same budget fails the same way.
+                if detail.contains("length") { budget *= 4 }
+            }
+        }
+        throw lastError
+    }
+
+    // MARK: - Title length
+
+    /// Language models are unreliable at counting characters, so the eBay limit
+    /// is enforced here instead of being left to the prompt. A rewrite is asked
+    /// for first — the model judges what detail to sacrifice far better than a
+    /// blind truncation — with a deterministic trim as the guarantee.
+    private static func enforcingLengthLimit(_ title: String, key: String) async -> String {
+        let limit = EbayTitleLimit.maxCharacters
+        guard title.count > limit else { return title }
+
+        var best = title
+        if let shortened = try? await requestShortenedTitle(title, key: key),
+           !shortened.isEmpty,
+           shortened.count < best.count {
+            best = shortened
+        }
+        return best.count <= limit ? best : trimmedToLimit(best, limit: limit)
+    }
+
+    /// Text-only follow-up: shortening needs the title, not the card images.
+    private static func requestShortenedTitle(_ title: String, key: String) async throws -> String {
+        let limit = EbayTitleLimit.maxCharacters
+        let instruction = """
+        The eBay title below is \(title.count) characters. The limit is \(limit).
+        Rewrite it to \(limit) characters or fewer, counting spaces.
+
+        Keep, in order of importance: the player or subject name, the season years,
+        the manufacturer and set, and the card number.
+        Drop, in this order, only as much as needed to fit: the team nickname at the
+        end, then the word "Insert", then remaining variety/parallel wording.
+        Never abbreviate or initialize the player's name.
+
+        Reply with the title only — no label, quotes, or explanation.
+
+        Title: \(title)
+        """
+
+        var body: [String: Any] = [
             "model": model,
-            "max_completion_tokens": 500,
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": [
-                    ["type": "text", "text": "This is the front of the item."],
-                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(frontB64)"]],
-                ]],
-                ["role": "user", "content": [
-                    ["type": "text", "text": "This is the back of the item."],
-                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(backB64)"]],
-                ]],
-            ],
+            "max_completion_tokens": 2_000,
+            "messages": [["role": "user", "content": instruction]],
         ]
+        if model.lowercased().hasPrefix("gpt-5") {
+            body["reasoning_effort"] = "none"
+        }
 
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         req.httpMethod = "POST"
@@ -115,6 +197,34 @@ enum OpenAIService {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        return try await requestTitle(req)
+    }
+
+    /// Last-resort guarantee that a title fits. Drops whole " - " sections from
+    /// the end first (team, then variety), since the format puts the least
+    /// important detail last, and only cuts words if that is still not enough.
+    static func trimmedToLimit(_ title: String, limit: Int) -> String {
+        guard title.count > limit else { return title }
+
+        var sections = title.components(separatedBy: " - ")
+        // Keep at least the name and the set/number that identify the card.
+        while sections.count > 2, sections.joined(separator: " - ").count > limit {
+            sections.removeLast()
+        }
+
+        var result = sections.joined(separator: " - ")
+        while result.count > limit, let lastSpace = result.lastIndex(of: " ") {
+            result = String(result[..<lastSpace])
+        }
+
+        result = String(result.prefix(limit))
+        while let last = result.last, last == " " || last == "-" {
+            result.removeLast()
+        }
+        return result.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func requestTitle(_ req: URLRequest) async throws -> String {
         let (data, response) = try await URLSession.shared.data(for: req)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else { throw OpenAIError.badResponse(code, apiErrorMessage(from: data)) }
@@ -122,7 +232,8 @@ enum OpenAIService {
         guard let outer = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = outer["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+              let content = message["content"] as? String,
+              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OpenAIError.noContent(responseDetail(from: data))
         }
 
@@ -133,13 +244,17 @@ enum OpenAIService {
             if let re = titlePattern,
                let m = re.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
                let r = Range(m.range(at: 1), in: trimmed) {
-                return String(trimmed[r]).replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+                let title = String(trimmed[r]).replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+                if !title.isEmpty { return title }
             }
         }
         // Fallback: first non-empty line
-        return content.components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "*", with: "") }
-            .first(where: { !$0.isEmpty }) ?? content
+        guard let fallback = content.components(separatedBy: "\n")
+            .map({ $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "*", with: "") })
+            .first(where: { !$0.isEmpty }) else {
+            throw OpenAIError.noContent(responseDetail(from: data))
+        }
+        return fallback
     }
 
     // MARK: - Main call
@@ -161,7 +276,11 @@ enum OpenAIService {
         extract: year (4-digit start year of the season), last_name (player last name only), \
         manufacturer (e.g., Topps, Panini), series (e.g., Chrome, Select, Mosaic), and number \
         (card number only, no #). If the card is an insert, add the insert name before \
-        the card number. Return ONLY a JSON object with keys: \
+        the card number. For basketball, the year is ALWAYS the first year of the card's \
+        season—not the copyright, licensing, or printed production year. For example, a \
+        2025-26 card is year "2025" for both Panini and Topps; a Topps ©2026 line means \
+        year "2025", while a Panini 2024-25 card is year "2024" even if its copyright says \
+        ©2025. Return ONLY a JSON object with keys: \
         year, last_name, manufacturer, series, number. If unknown, use 'Unknown'.
         """
         if !ocrFront.isEmpty { system += "\nOCR front text:\n\(ocrFront)\n" }
@@ -278,10 +397,15 @@ enum OpenAIService {
               let choice = choices.first else {
             return ""
         }
+        var parts: [String] = []
         if let finishReason = choice["finish_reason"] as? String {
-            return "finish reason: \(finishReason)"
+            parts.append("finish reason: \(finishReason)")
         }
-        return ""
+        if let message = choice["message"] as? [String: Any],
+           let refusal = message["refusal"] as? String, !refusal.isEmpty {
+            parts.append("refusal: \(refusal.prefix(200))")
+        }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Image encoding

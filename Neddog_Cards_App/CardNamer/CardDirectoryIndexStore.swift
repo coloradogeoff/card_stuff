@@ -10,7 +10,9 @@ struct CardDirectoryIndex {
 enum CardDirectoryIndexStore {
     static let cacheThreshold = 200
 
-    private static let cacheVersion = 1
+    // Bumped when the pairing rule changed: caches hold derived pairs, so old
+    // ones would replay the mismatched pairing until the next scan finished.
+    private static let cacheVersion = 2
     private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"]
 
     // Cache lives outside the watched directory to prevent the atomic write
@@ -160,6 +162,14 @@ enum CardDirectoryIndexStore {
             }
         }
 
+        // The trailing number's DIGIT WIDTH is part of the group key, not just the
+        // prefix before it. A folder can hold two independently numbered batches —
+        // card_20260919_0006 from the scanner and a hand-made card_20260919_006 —
+        // and those sort adjacently because the numbers are numerically equal.
+        // Keying on the prefix alone interleaved the two batches and paired one
+        // card's back with an unrelated card's back, which then went to the title
+        // prompt as a single card. "/" cannot occur in a path component, so it is
+        // a safe separator that no real filename can collide with.
         let stemRegex = try? NSRegularExpression(pattern: #"_\d+$"#)
         let fallbackStem = { (url: URL) -> String in
             let base = url.deletingPathExtension().lastPathComponent
@@ -167,7 +177,8 @@ enum CardDirectoryIndexStore {
             if let stemRegex,
                let match = stemRegex.firstMatch(in: base, range: range),
                let matchRange = Range(match.range, in: base) {
-                return String(base[..<matchRange.lowerBound])
+                let digitCount = base.distance(from: matchRange.lowerBound, to: matchRange.upperBound) - 1
+                return "\(base[..<matchRange.lowerBound])/\(digitCount)"
             }
             return base
         }

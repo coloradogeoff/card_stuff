@@ -33,7 +33,7 @@ enum CardNameBuilder {
         let number = parts.last ?? "Unknown"
         let variety = parts.count > 5 ? parts[4..<(parts.count - 1)].joined(separator: "-") : "Base"
 
-        let season = seasonString(fromYear: year, manufacturer: mfg)
+        let season = seasonString(fromYear: year)
         var tokens = [season, mfg, series]
         if !variety.isEmpty && variety.lowercased() != "base" && variety.lowercased() != "unknown" {
             tokens.append(variety)
@@ -69,16 +69,20 @@ enum CardNameBuilder {
             details.year = y
             return
         }
-        if let y = extractCopyrightYear(from: combined) {
-            details.year = y
-            return
-        }
         let isTopps = (details.manufacturer.lowercased() == "topps") || combined.lowercased().contains("topps")
-        if isTopps, let y = extractShortSeasonEndYear(from: combined) {
-            details.year = y
+        // Basketball filenames always use the first year of the season. Topps
+        // places the ending year in its copyright line (for example, © 2026
+        // denotes the 2025-26 season), whereas Panini's explicit season line
+        // above already provides the correct starting year.
+        if isTopps, let y = extractCopyrightYear(from: combined), let endYear = Int(y) {
+            details.year = String(endYear - 1)
             return
         }
         if let y = extractSeasonYear(from: combined) {
+            details.year = y
+            return
+        }
+        if let y = extractCopyrightYear(from: combined) {
             details.year = y
             return
         }
@@ -145,19 +149,6 @@ enum CardNameBuilder {
         return candidates.max().map(String.init)
     }
 
-    private static func extractShortSeasonEndYear(from text: String) -> String? {
-        var candidates: [Int] = []
-        if let re = try? NSRegularExpression(pattern: #"\b(\d{2})\s*[-/]\s*(\d{2})\b"#) {
-            let range = NSRange(text.startIndex..., in: text)
-            for m in re.matches(in: text, range: range) {
-                if let r = Range(m.range(at: 2), in: text), let yy = Int(text[r]) {
-                    candidates.append(expandShortYear(yy))
-                }
-            }
-        }
-        return candidates.max().map(String.init)
-    }
-
     private static func expandShortYear(_ yy: Int) -> Int {
         yy <= 79 ? 2000 + yy : 1900 + yy
     }
@@ -202,14 +193,11 @@ enum CardNameBuilder {
         return result.isEmpty ? "Unknown" : result
     }
 
-    private static func seasonString(fromYear year: String, manufacturer: String) -> String {
+    private static func seasonString(fromYear year: String) -> String {
         guard let re = try? NSRegularExpression(pattern: #"(19|20)\d{2}"#),
               let m = re.firstMatch(in: year, range: NSRange(year.startIndex..., in: year)),
               let r = Range(m.range, in: year),
               let y = Int(year[r]) else { return year }
-        let isTopps = manufacturer.lowercased() == "topps"
-        let start = isTopps ? y - 1 : y
-        let end = (start + 1) % 100
-        return String(format: "%d-%02d", start, end)
+        return String(format: "%d-%02d", y, (y + 1) % 100)
     }
 }

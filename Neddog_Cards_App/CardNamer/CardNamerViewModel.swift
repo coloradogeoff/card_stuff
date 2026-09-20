@@ -57,11 +57,19 @@ final class CardNamerViewModel {
         }
     }
     var pairsWithTraits: Set<String> = []
+    var listedPairs: Set<String> = []
+    var hideListed: Bool = SettingsStore.shared.hideListedCardNamer {
+        didSet {
+            SettingsStore.shared.hideListedCardNamer = hideListed
+            updateVisiblePairs()
+            syncSelectionWithVisiblePairs()
+        }
+    }
 
     var selectedIDs: Set<CardPair.ID> = [] {
         didSet {
             proposedName = selectedPair?.baseName ?? ""
-            updateSelectedTraits()
+            updateSelectionMetadata()
         }
     }
 
@@ -83,10 +91,12 @@ final class CardNamerViewModel {
     // Preview
     var showingBack: Bool = false
     var selectedTraits: CardTraits = CardTraits()
+    var selectedListing: CardListing = CardListing()
     var previewRevision: Int = 0
 
     private let watcher = DirectoryWatcher()
     private let metadataStore = CardMetadataStore(directoryURL: SettingsStore.shared.incomingDirectory)
+    private let listingStore = CardListingStore(directoryURL: SettingsStore.shared.incomingDirectory)
     private var debounceTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var refreshGeneration = 0
@@ -131,7 +141,14 @@ final class CardNamerViewModel {
     }
 
     var hasActiveFilter: Bool {
-        !filterText.isEmpty || !filterPlayer.isEmpty || !filterYear.isEmpty || !filterSet.isEmpty || !selectedTraitFilters.isEmpty
+        !filterText.isEmpty || !filterPlayer.isEmpty || !filterYear.isEmpty || !filterSet.isEmpty
+            || !selectedTraitFilters.isEmpty || hideListed
+    }
+
+    var hiddenListedCount: Int {
+        pairs.reduce(into: 0) { count, pair in
+            if listedPairs.contains(pair.baseName) { count += 1 }
+        }
     }
 
     var previewURL: URL? {
@@ -192,6 +209,7 @@ final class CardNamerViewModel {
 
         let metadataMatchingPairs = matchingPairs.filter {
             metadataStore.matches($0, selectedTraits: selectedTraitFilters)
+                && (!hideListed || !listedPairs.contains($0.baseName))
         }
 
         // Parse each pair's sort fields once up front (O(n)) rather than inside
@@ -269,6 +287,7 @@ final class CardNamerViewModel {
             return
         }
         metadataStore.load(directoryURL: dir)
+        listingStore.load(directoryURL: dir)
         startWatching()
 
         if let cachedIndex = CardDirectoryIndexStore.cachedIndex(for: dir) {
@@ -379,6 +398,7 @@ final class CardNamerViewModel {
                 try FileManager.default.moveItem(at: pair.back, to: newBack)
             }
             metadataStore.moveMetadata(from: pair.baseName, to: finalBase)
+            listingStore.moveListing(from: pair.baseName, to: finalBase)
             return (newFront, newBack)
         } catch {
             log("Rename failed for \(pair.displayName): \(error.localizedDescription)")
@@ -453,6 +473,7 @@ final class CardNamerViewModel {
                 try FileManager.default.trashItem(at: pair.front, resultingItemURL: nil)
                 try FileManager.default.trashItem(at: pair.back, resultingItemURL: nil)
                 metadataStore.removeMetadata(for: pair)
+                listingStore.removeListing(for: pair)
                 log("Moved to Trash: \(pair.front.lastPathComponent) + \(pair.back.lastPathComponent)")
             } catch {
                 log("Delete failed: \(error.localizedDescription)")
@@ -511,6 +532,7 @@ final class CardNamerViewModel {
             }
             if movedFilesForPair == 2 {
                 metadataStore.moveMetadata(for: pair, to: dest)
+                listingStore.moveListing(for: pair, to: dest)
             }
         }
         log("Move complete: \(moved) moved, \(skipped) skipped → \(dest.lastPathComponent)")
@@ -599,7 +621,7 @@ final class CardNamerViewModel {
         guard let selectedPair else { return }
         let newValue = !metadataStore.traits(for: selectedPair).contains(trait)
         metadataStore.set(trait, to: newValue, for: selectedPair)
-        updateSelectedTraits()
+        updateSelectionMetadata()
         updatePairsWithTraits()
         updateVisiblePairs()
         syncSelectionWithVisiblePairs()
@@ -655,18 +677,44 @@ final class CardNamerViewModel {
         visiblePairs = filteredAndSortedPairs()
     }
 
+    func listing(for pair: CardPair) -> CardListing {
+        listingStore.listing(for: pair)
+    }
+
+    /// Marks or unmarks cards as listed. A mixed selection lands on one
+    /// consistent state, taken from the first card in the group.
+    func toggleListed(_ targets: [CardPair]) {
+        guard let first = targets.first else { return }
+        let newValue = !listingStore.listing(for: first).listed
+        for pair in targets {
+            listingStore.setListed(newValue, for: pair)
+        }
+        updateListedPairs()
+        updateSelectionMetadata()
+        updateVisiblePairs()
+        syncSelectionWithVisiblePairs()
+        let cardWord = targets.count == 1 ? "card" : "cards"
+        log("\(newValue ? "Marked" : "Unmarked") \(targets.count) \(cardWord) as listed")
+    }
+
     private func updatePairsWithTraits() {
         pairsWithTraits = Set(pairs.compactMap { pair in
             metadataStore.traits(for: pair).hasAnyTrait ? pair.baseName : nil
         })
     }
 
-    private func updateSelectedTraits() {
+    private func updateSelectionMetadata() {
         guard let selectedPair else {
             selectedTraits = CardTraits()
+            selectedListing = CardListing()
             return
         }
         selectedTraits = metadataStore.traits(for: selectedPair)
+        selectedListing = listingStore.listing(for: selectedPair)
+    }
+
+    private func updateListedPairs() {
+        listedPairs = listingStore.listedBaseNames
     }
 
     private func applyDirectoryIndex(_ index: CardDirectoryIndex, pruneMetadata: Bool) {
@@ -675,9 +723,12 @@ final class CardNamerViewModel {
         pairs = index.pairs
         pairsByID = Dictionary(uniqueKeysWithValues: pairs.map { ($0.id, $0) })
         if pruneMetadata {
-            metadataStore.pruneMetadata(keepingBaseNames: Set(index.pairs.map(\.baseName)))
+            let validBaseNames = Set(index.pairs.map(\.baseName))
+            metadataStore.pruneMetadata(keepingBaseNames: validBaseNames)
+            listingStore.pruneListings(keepingBaseNames: validBaseNames)
         }
         updatePairsWithTraits()
+        updateListedPairs()
         updateVisiblePairs()
 
         if let pending = pendingSelectionID, pairsByID[pending] != nil {
