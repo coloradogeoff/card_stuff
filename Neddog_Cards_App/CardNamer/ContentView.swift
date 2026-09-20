@@ -432,6 +432,13 @@ func listingRowTooltip(_ listing: CardListing) -> String? {
     return lines.isEmpty ? nil : lines.joined(separator: "\n")
 }
 
+/// Says why the item is unavailable rather than just greying out silently.
+func mergeMenuTitle(count: Int) -> String {
+    if count < CardMergeService.minimumImages { return "Merge Fronts (select 2 or more)" }
+    if count > CardMergeService.maximumImages { return "Merge Fronts (select 8 or fewer)" }
+    return "Merge \(count) Fronts"
+}
+
 func listedMenuTitle(isListed: Bool, count: Int) -> String {
     let verb = isListed ? "Unmark" : "Mark"
     guard count > 1 else { return "\(verb) as Listed" }
@@ -807,6 +814,22 @@ struct CardNamerSidebar: View {
 
                             Divider()
 
+                            Button {
+                                vm.mergeFronts(contextPairs(for: pair))
+                            } label: {
+                                Label(
+                                    mergeMenuTitle(count: contextPairs(for: pair).count),
+                                    systemImage: "square.grid.2x2"
+                                )
+                            }
+                            .disabled(
+                                vm.isBusy
+                                || contextPairs(for: pair).count < CardMergeService.minimumImages
+                                || contextPairs(for: pair).count > CardMergeService.maximumImages
+                            )
+
+                            Divider()
+
                             Button(role: .destructive) {
                                 pendingDeletePair = pair
                             } label: {
@@ -1161,6 +1184,21 @@ struct EbayTitlesSidebar: View {
         }
     }
 
+    @ViewBuilder
+    private func mergeMenuItem(for pair: CardPair) -> some View {
+        let targets = contextPairs(for: pair)
+        Button {
+            vm.mergeFronts(targets)
+        } label: {
+            Label(mergeMenuTitle(count: targets.count), systemImage: "square.grid.2x2")
+        }
+        .disabled(
+            vm.isBusy
+            || targets.count < CardMergeService.minimumImages
+            || targets.count > CardMergeService.maximumImages
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             sourceHeader
@@ -1263,6 +1301,10 @@ struct EbayTitlesSidebar: View {
                                 Label("Copy Title", systemImage: "doc.on.doc")
                             }
                             .disabled(vm.listing(for: pair).title == nil)
+
+                            Divider()
+
+                            mergeMenuItem(for: pair)
 
                             Divider()
 

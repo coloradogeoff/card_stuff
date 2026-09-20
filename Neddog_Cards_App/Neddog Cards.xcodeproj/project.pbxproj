@@ -26,6 +26,7 @@
 		B017 /* BasketballRookieLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F017 /* BasketballRookieLookup.swift */; };
 		B018 /* basketball-rookies.csv in Resources */ = {isa = PBXBuildFile; fileRef = F018 /* basketball-rookies.csv */; };
 		B019 /* CardListingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F019 /* CardListingStore.swift */; };
+		B020 /* CardMergeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F020 /* CardMergeService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +49,7 @@
 		F017 /* BasketballRookieLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BasketballRookieLookup.swift; sourceTree = "<group>"; };
 		F018 /* basketball-rookies.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = "basketball-rookies.csv"; sourceTree = "<group>"; };
 		F019 /* CardListingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardListingStore.swift; sourceTree = "<group>"; };
+		F020 /* CardMergeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMergeService.swift; sourceTree = "<group>"; };
 		FAPP /* Neddog Cards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Neddog Cards.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -94,6 +96,7 @@
 				F011 /* EbayTitlesViewModel.swift */,
 				F013 /* CardMetadataStore.swift */,
 				F019 /* CardListingStore.swift */,
+				F020 /* CardMergeService.swift */,
 				F014 /* CardDirectoryIndexStore.swift */,
 				F015 /* ImageEditingService.swift */,
 				F016 /* PSADownloadService.swift */,
@@ -187,6 +190,7 @@
 				B011 /* EbayTitlesViewModel.swift in Sources */,
 				B013 /* CardMetadataStore.swift in Sources */,
 				B019 /* CardListingStore.swift in Sources */,
+				B020 /* CardMergeService.swift in Sources */,
 				B014 /* CardDirectoryIndexStore.swift in Sources */,
 				B015 /* ImageEditingService.swift in Sources */,
 				B016 /* PSADownloadService.swift in Sources */,

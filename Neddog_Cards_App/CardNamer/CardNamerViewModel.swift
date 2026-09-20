@@ -539,6 +539,36 @@ final class CardNamerViewModel {
         refreshImages()
     }
 
+
+    // MARK: - Merge fronts
+
+    /// Combines the selected cards' front images into one grid image, named
+    /// after the first card in the current sort order.
+    func mergeFronts(_ targets: [CardPair]) {
+        guard !isBusy,
+              targets.count >= CardMergeService.minimumImages,
+              targets.count <= CardMergeService.maximumImages else { return }
+
+        isBusy = true
+        let fronts = targets.map(\.front)
+        let destination = currentDirectory
+        log("Merging \(fronts.count) front(s)...")
+
+        Task {
+            do {
+                let output = try await Task.detached(priority: .userInitiated) {
+                    try CardMergeService.merge(fronts: fronts, in: destination)
+                }.value
+                log("Merged \(fronts.count) fronts -> \(output.lastPathComponent)")
+                isBusy = false
+                refreshImages()
+            } catch {
+                log("Merge failed: \(error.localizedDescription)")
+                isBusy = false
+            }
+        }
+    }
+
     // MARK: - Search
 
     func openTCDB() {
