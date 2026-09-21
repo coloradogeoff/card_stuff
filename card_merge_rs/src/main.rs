@@ -6,21 +6,6 @@ use filetime::FileTime;
 use glob::glob;
 use image::{imageops, Rgb, RgbImage};
 
-/// `merge_<YYYYMMDD>_<count>.jpg`, dated from the first merged image and
-/// suffixed if that name is taken. Matches CardMergeService in the Neddog Cards
-/// app so a merge made here and one made there are named the same way.
-fn output_filename(first: &Path, count: usize) -> PathBuf {
-    let base = format!("merge_{}_{}", date_stamp(first), count);
-
-    let mut candidate = PathBuf::from(format!("{}.jpg", base));
-    let mut suffix = 2u32;
-    while candidate.exists() {
-        candidate = PathBuf::from(format!("{}-{}.jpg", base, suffix));
-        suffix += 1;
-    }
-    candidate
-}
-
 /// Prefers the date the scanner wrote into the filename; falls back to the
 /// file's modification date. (The app also checks EXIF in between, which these
 /// scans do not carry.)
@@ -198,14 +183,18 @@ fn merge_images(image_files: &[PathBuf], output: PathBuf) -> PathBuf {
     output
 }
 
-fn touch_files_in_order(card_files: &[PathBuf], merged_file: &Path) {
+fn touch_files_in_order(card_files: &[PathBuf], merged_files: &[PathBuf]) {
     let base_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
 
     let ft = FileTime::from_unix_time(base_secs, 0);
-    filetime::set_file_times(merged_file, ft, ft).expect("Failed to set merged file time");
+    for merged in merged_files {
+        if let Err(e) = filetime::set_file_times(merged, ft, ft) {
+            eprintln!("Warning: couldn't set time on {}: {}", merged.display(), e);
+        }
+    }
 
     for (i, path) in card_files.iter().enumerate() {
         let ts = base_secs - (i as i64 + 1);
@@ -252,10 +241,8 @@ fn main() {
 
     file_nums.sort_by_key(|(_, n)| *n);
 
-    let filtered: Vec<PathBuf> = if use_all {
-        file_nums.iter().map(|(f, _)| f.clone()).collect()
-    } else {
-        let parity: u32 = if use_even { 0 } else { 1 };
+    let all_sorted: Vec<PathBuf> = file_nums.iter().map(|(f, _)| f.clone()).collect();
+    let pick = |parity: u32| -> Vec<PathBuf> {
         file_nums
             .iter()
             .filter(|(_, n)| n % 2 == parity)
@@ -263,15 +250,55 @@ fn main() {
             .collect()
     };
 
-    let all_sorted: Vec<PathBuf> = file_nums.iter().map(|(f, _)| f.clone()).collect();
+    // -a is a different intent: one grid of every scan, with no front/back split.
+    if use_all {
+        if all_sorted.is_empty() {
+            eprintln!("No images to merge (nothing matched).");
+            std::process::exit(1);
+        }
+        println!("Merging files: {:?}", all_sorted);
+        let output = PathBuf::from(format!(
+            "merge_{}_{}.jpg",
+            date_stamp(&all_sorted[0]),
+            all_sorted.len()
+        ));
+        let merged = merge_images(&all_sorted, output);
+        touch_files_in_order(&all_sorted, &[merged]);
+        return;
+    }
 
-    if filtered.is_empty() {
-        eprintln!("No images to merge (nothing matched, or every match was filtered out).");
+    let fronts = pick(1);
+    let backs = pick(0);
+    if fronts.is_empty() && backs.is_empty() {
+        eprintln!("No images to merge (nothing matched).");
         std::process::exit(1);
     }
 
-    println!("Merging files: {:?}", filtered);
-    let output = output_filename(&filtered[0], filtered.len());
-    let merged = merge_images(&filtered, output);
-    touch_files_in_order(&all_sorted, &merged);
+    // Both halves share one base name so they pair up as a single card in the
+    // app, which drops any merged image that has no partner. The name always
+    // counts the fronts, so an odd scan left without its back cannot push the
+    // two halves onto names that no longer match.
+    let naming_source = if fronts.is_empty() { &backs } else { &fronts };
+    let base = format!(
+        "merge_{}_{}",
+        date_stamp(&naming_source[0]),
+        naming_source.len()
+    );
+
+    let mut merged_files: Vec<PathBuf> = Vec::new();
+
+    // A plain `card_merge` now writes both halves; -e still limits it to backs.
+    if !use_even && !fronts.is_empty() {
+        println!("Merging fronts: {:?}", fronts);
+        merged_files.push(merge_images(&fronts, PathBuf::from(format!("{}.jpg", base))));
+    }
+
+    if backs.is_empty() {
+        eprintln!("Note: no back images found, so no _b companion was written.");
+    } else {
+        println!("Merging backs: {:?}", backs);
+        merged_files.push(merge_images(&backs, PathBuf::from(format!("{}_b.jpg", base))));
+    }
+
+    touch_files_in_order(&all_sorted, &merged_files);
 }

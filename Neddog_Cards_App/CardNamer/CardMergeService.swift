@@ -24,6 +24,7 @@ enum CardMergeService {
         case tooFew(Int)
         case tooMany(Int)
         case unreadable(URL)
+        case mismatchedSides
         case renderFailed
 
         var errorDescription: String? {
@@ -34,20 +35,51 @@ enum CardMergeService {
                 "Select at most \(CardMergeService.maximumImages) cards to merge (got \(n))."
             case .unreadable(let url):
                 "Could not read \(url.lastPathComponent)."
+            case .mismatchedSides:
+                "Each front needs a matching back to merge."
             case .renderFailed:
                 "Could not render the merged image."
             }
         }
     }
 
-    /// Merges `fronts` in the order given and writes the result beside them.
-    /// Returns the URL actually written.
+    /// Merges the fronts into one grid and the matching backs into another,
+    /// written side by side as `<name>.jpg` and `<name>_b.jpg`.
+    ///
+    /// The back companion is not decoration: a lone merged file has no partner,
+    /// so `CardDirectoryIndexStore.buildPairs` drops it and it never appears in
+    /// the app. Naming the pair explicitly also gets it matched by the `_b` pass
+    /// that runs before the adjacency fallback, which keeps two merges from the
+    /// same day from pairing with each other.
     @discardableResult
-    static func merge(fronts: [URL], in directory: URL) throws -> URL {
+    static func merge(fronts: [URL], backs: [URL], in directory: URL) throws -> (front: URL, back: URL) {
         guard fronts.count >= minimumImages else { throw MergeError.tooFew(fronts.count) }
         guard fronts.count <= maximumImages else { throw MergeError.tooMany(fronts.count) }
+        guard backs.count == fronts.count else { throw MergeError.mismatchedSides }
 
-        let images = try fronts.map { url -> CGImage in
+        // Render both before writing either, so a failure never leaves a lone
+        // front on disk — the exact state this pairing is meant to avoid.
+        let frontImage = try renderGrid(from: fronts)
+        let backImage = try renderGrid(from: backs)
+
+        let output = outputURLs(for: fronts[0], count: fronts.count, in: directory)
+        let backExisted = FileManager.default.fileExists(atPath: output.back.path)
+        try write(frontImage, to: output.front)
+        do {
+            try write(backImage, to: output.back)
+        } catch {
+            // Don't strand an unpairable front if the second write fails. Only
+            // clean up a front this call created; a pre-existing pair is left
+            // as it was rather than half-deleted.
+            if !backExisted { try? FileManager.default.removeItem(at: output.front) }
+            throw error
+        }
+        return output
+    }
+
+    /// Lays the images out and draws them into one grid image.
+    private static func renderGrid(from urls: [URL]) throws -> CGImage {
+        let images = try urls.map { url -> CGImage in
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw MergeError.unreadable(url)
@@ -98,8 +130,10 @@ enum CardMergeService {
         }
 
         guard let merged = context.makeImage() else { throw MergeError.renderFailed }
+        return merged
+    }
 
-        let output = availableOutputURL(for: fronts[0], count: fronts.count, in: directory)
+    private static func write(_ image: CGImage, to url: URL) throws {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             data, UTType.jpeg.identifier as CFString, 1, nil
@@ -107,27 +141,26 @@ enum CardMergeService {
             throw MergeError.renderFailed
         }
         CGImageDestinationAddImage(
-            destination, merged, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary
+            destination, image, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary
         )
         guard CGImageDestinationFinalize(destination) else { throw MergeError.renderFailed }
-
-        try (data as Data).write(to: output, options: .atomic)
-        return output
+        try (data as Data).write(to: url, options: .atomic)
     }
 
-    /// `merge_<YYYYMMDD>_<number of cards>.jpg`, dated from the first image and
-    /// suffixed if that name is taken, so a second merge of the same size on the
-    /// same day never overwrites the first.
-    static func availableOutputURL(for firstFront: URL, count: Int, in directory: URL) -> URL {
+    /// `merge_<YYYYMMDD>_<number of cards>.jpg` plus its `_b` companion, dated
+    /// from the first image.
+    ///
+    /// The name is deterministic and an existing pair is overwritten: re-merging
+    /// after one of the source cards is rotated or rescanned should refresh the
+    /// merge in place, not leave a stale original beside a suffixed copy. The
+    /// trade-off is that two *different* merges of the same card count on the
+    /// same scan date share a name, so the second replaces the first.
+    static func outputURLs(for firstFront: URL, count: Int, in directory: URL) -> (front: URL, back: URL) {
         let base = "merge_\(dateStamp(for: firstFront))_\(count)"
-
-        var candidate = directory.appendingPathComponent("\(base).jpg")
-        var suffix = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = directory.appendingPathComponent("\(base)-\(suffix).jpg")
-            suffix += 1
-        }
-        return candidate
+        return (
+            front: directory.appendingPathComponent("\(base).jpg"),
+            back: directory.appendingPathComponent("\(base)_b.jpg")
+        )
     }
 
     // MARK: - Date stamp

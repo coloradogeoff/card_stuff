@@ -479,15 +479,21 @@ final class EbayTitlesViewModel {
 
         isBusy = true
         let fronts = targets.map(\.front)
+        let backs = targets.map(\.back)
         let destination = currentDirectory
-        log("Merging \(fronts.count) front(s)...")
+        log("Merging \(fronts.count) card(s)...")
 
         Task {
             do {
                 let output = try await Task.detached(priority: .userInitiated) {
-                    try CardMergeService.merge(fronts: fronts, in: destination)
+                    try CardMergeService.merge(fronts: fronts, backs: backs, in: destination)
                 }.value
-                log("Merged \(fronts.count) fronts -> \(output.lastPathComponent)")
+                // A re-merge overwrites in place, so the previously decoded
+                // image for those URLs has to go or the stale one keeps showing.
+                CardPreviewView.invalidateCache(for: output.front)
+                CardPreviewView.invalidateCache(for: output.back)
+                previewRevision += 1
+                log("Merged \(fronts.count) cards -> \(output.front.lastPathComponent) + \(output.back.lastPathComponent)")
                 isBusy = false
                 refreshImages()
             } catch {
