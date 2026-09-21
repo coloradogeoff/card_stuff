@@ -53,7 +53,7 @@ func recognizeText(in imageURL: URL, level: VNRequestTextRecognitionLevel = .acc
 // MARK: - Address parsing
 
 let cityStateZip = try! NSRegularExpression(
-    pattern: #"^(.+?),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$"#
+    pattern: #"^(.+?),?\s+([A-Z]{2})\s*(\d{5}(?:-\d{4})?)$"#
 )
 
 func isCityStateLine(_ text: String) -> Bool {
@@ -77,15 +77,20 @@ func fixLeadingDigit(_ line: String) -> String {
 }
 
 func isShipToLabel(_ text: String) -> Bool {
-    let lower = text.lowercased()
-    return lower.hasPrefix("ship to") && lower.count <= 12
+    // Vision occasionally surrounds an otherwise correct label with an
+    // invisible formatting character. Match its letters rather than requiring
+    // an exact whitespace/punctuation representation of "Ship to".
+    let letters = text.lowercased().unicodeScalars.filter {
+        CharacterSet.letters.contains($0)
+    }
+    let normalized = String(String.UnicodeScalarView(letters))
+    return normalized == "shipto"
 }
 
 // MARK: - Pass 1: locate address region in full-screen OCR
 
 struct AddressRegion {
-    let shipToBox: CGRect
-    let bottomBox: CGRect
+    let boxes: [CGRect]
 }
 
 func isShipFromLabel(_ text: String) -> Bool {
@@ -98,10 +103,44 @@ func isReturnAddressLine(_ text: String) -> Bool {
     return lower.contains("nederland") && lower.contains("80466")
 }
 
+let countryNames: Set<String> = Set(Locale.Region.isoRegions.compactMap {
+    Locale(identifier: "en_US").localizedString(forRegionCode: $0.identifier)?.lowercased()
+})
+let postalCode = try! NSRegularExpression(pattern: #"\b\d{5}(?:-\d{4})?\b"#)
+
+func isCountryLine(_ text: String) -> Bool {
+    countryNames.contains(text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+}
+
+func containsPostalCode(_ text: String) -> Bool {
+    postalCode.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+}
+
 func findAddressRegion(in observations: [TextObs]) -> AddressRegion? {
-    guard let shipToIdx = observations.firstIndex(where: { isShipToLabel($0.text) }) else {
+    let shipToCandidates = observations.indices.filter { isShipToLabel(observations[$0].text) }
+    guard !shipToCandidates.isEmpty else {
         return nil
     }
+    // A full-screen capture can include a terminal or another app that happens
+    // to contain the words “Ship to.” Prefer a label with a nearby, aligned
+    // postal-code or country line—the structure of an actual recipient block.
+    let shipToIdx = shipToCandidates.min { lhs, rhs in
+        func boundaryDistance(for idx: Int) -> CGFloat {
+            let label = observations[idx].box
+            return observations.compactMap { observation in
+                let verticalDistance = label.minY - observation.box.minY
+                guard verticalDistance >= 0, verticalDistance <= 0.12,
+                      observation.box.minX >= label.minX - 0.02,
+                      observation.box.minX <= label.maxX + 0.20,
+                      observation.text.count <= 60,
+                      isCityStateLine(observation.text) || isCountryLine(observation.text) || containsPostalCode(observation.text) else {
+                    return nil
+                }
+                return verticalDistance
+            }.min() ?? .greatestFiniteMagnitude
+        }
+        return boundaryDistance(for: lhs) < boundaryDistance(for: rhs)
+    }!
     let shipToBox = observations[shipToIdx].box
     let shipFromIdx = observations.dropFirst(shipToIdx + 1).firstIndex {
         $0.box.minY < shipToBox.minY && isShipFromLabel($0.text)
@@ -110,19 +149,37 @@ func findAddressRegion(in observations: [TextObs]) -> AddressRegion? {
         $0.box.minY < shipToBox.minY && isReturnAddressLine($0.text)
     }
     let recipientEndIdx = shipFromIdx ?? observations.endIndex
-    let cityObs = observations[(shipToIdx + 1)..<recipientEndIdx].first {
+    let recipientObservations = observations[(shipToIdx + 1)..<recipientEndIdx]
+    let cityObs = recipientObservations.first {
         $0.box.minY < shipToBox.minY && $0.text.count <= 60 && isCityStateLine($0.text)
     }
+    let countryObs = recipientObservations.first {
+        $0.box.minY < shipToBox.maxY && $0.text.count <= 60 && isCountryLine($0.text)
+    }
 
-    // International addresses have no U.S. city/state/ZIP line. In that case,
-    // use the following Ship from / Return to section as a hard lower boundary
-    // so the sender's address is never copied as part of the recipient address.
-    // Use the return-address line, rather than the left-side Ship from label,
-    // to keep the crop wide enough to include the recipient address column.
-    guard let bottomBox = cityObs?.box ?? returnAddressIdx.map({ observations[$0].box }) ?? shipFromIdx.map({ observations[$0].box }) else {
+    // International addresses have no U.S. city/state/ZIP line. Prefer their
+    // country line as the lower boundary. Some eBay layouts put Ship from above
+    // Ship to, so it cannot be the only fallback boundary.
+    guard let bottomBox = cityObs?.box ?? countryObs?.box ?? returnAddressIdx.map({ observations[$0].box }) ?? shipFromIdx.map({ observations[$0].box }) else {
         return nil
     }
-    return AddressRegion(shipToBox: shipToBox, bottomBox: bottomBox)
+
+    // Include every line in the recipient column when determining the crop
+    // bounds. The country line can be much narrower than a street or an
+    // address-specific identifier, so using only the label and bottom line can
+    // clip valid address text.
+    let lowerY = bottomBox.minY
+    let recipientBoxes = observations[shipToIdx...].compactMap { observation -> CGRect? in
+        guard observation.text.count <= 60,
+              observation.box.minX >= shipToBox.minX - 0.02,
+              observation.box.minX <= shipToBox.maxX + 0.05,
+              observation.box.minY <= shipToBox.maxY + 0.02,
+              observation.box.maxY >= lowerY - 0.01 else {
+            return nil
+        }
+        return observation.box
+    }
+    return AddressRegion(boxes: recipientBoxes + [shipToBox, bottomBox])
 }
 
 // MARK: - Crop and scale
@@ -137,10 +194,10 @@ func cropAndScale(imageURL: URL, region: AddressRegion, scale: CGFloat = 4) thro
     let pad: CGFloat = 0.015
 
     // Vision coords → CG coords (flip Y)
-    let vLeft   = max(0, min(region.shipToBox.minX, region.bottomBox.minX) - pad)
-    let vRight  = min(1, max(region.shipToBox.maxX, region.bottomBox.maxX) + pad)
-    let vTop    = min(1, region.shipToBox.maxY + pad)   // top on screen = high Vision Y
-    let vBottom = max(0, region.bottomBox.minY - pad)
+    let vLeft   = max(0, region.boxes.map(\.minX).min()! - pad)
+    let vRight  = min(1, region.boxes.map(\.maxX).max()! + pad)
+    let vTop    = min(1, region.boxes.map(\.maxY).max()! + pad)   // top on screen = high Vision Y
+    let vBottom = max(0, region.boxes.map(\.minY).min()! - pad)
 
     let cgRect = CGRect(x: vLeft * W, y: (1 - vTop) * H,
                         width: (vRight - vLeft) * W, height: (vTop - vBottom) * H)
