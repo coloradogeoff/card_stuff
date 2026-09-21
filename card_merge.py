@@ -33,7 +33,10 @@ def average_perimeter_color(images):
 def merge_images(image_files, output_file=None):
     n = len(image_files)
     images = [Image.open(f) for f in image_files]
-    width, height = images[0].size
+    # Scanner output can vary by a few pixels. Size each grid cell to the
+    # largest scan so no card edge is clipped.
+    width = max(image.width for image in images)
+    height = max(image.height for image in images)
 
     if n == 2:
         cols_top = 2
@@ -108,12 +111,18 @@ def touch_files_in_order(card_files, merged_file):
         os.utime(path, (ts, ts))
 
 def main():
-    # Check if -e is provided. If yes, use even numbers; otherwise, default to odd.
+    # Default to odd-numbered fronts; -e selects backs and -a selects every scan.
     use_even = False
+    use_all = False
     args = sys.argv[1:]
     if '-e' in args:
         use_even = True
         args.remove('-e')
+    if '-a' in args:
+        use_all = True
+        args.remove('-a')
+    if use_even and use_all:
+        raise SystemExit("Use either -e (even files) or -a (all files), not both")
 
     if not args:
         args = ['card*']
@@ -129,11 +138,14 @@ def main():
     pattern = re.compile(r'(\d+)(?=\.jpg$)', re.IGNORECASE)
     file_nums = {f: int(m.group(1)) for f in files if (m := pattern.search(f))}
 
-    parity = 0 if use_even else 1
-    filtered_files = sorted(
-        [f for f, n in file_nums.items() if n % 2 == parity],
-        key=file_nums.get,
-    )
+    if use_all:
+        filtered_files = sorted(file_nums, key=file_nums.get)
+    else:
+        parity = 0 if use_even else 1
+        filtered_files = sorted(
+            [f for f, n in file_nums.items() if n % 2 == parity],
+            key=file_nums.get,
+        )
     ordered_touch_files = sorted(file_nums, key=file_nums.get)
 
     print("Merging files:", filtered_files)
