@@ -347,7 +347,13 @@ private struct IntlDetection {
 private func intlConvertToJPEG(from source: URL, to destination: URL) throws {
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: "/usr/bin/sips")
-    proc.arguments = ["-s", "format", "jpeg", source.path, "--out", destination.path]
+    var arguments = ["-s", "format", "jpeg"]
+    if source.pathExtension.lowercased() == "heic" {
+        // `sips` adjusts the height proportionally when only the width is specified.
+        arguments += ["--resampleWidth", "1200"]
+    }
+    arguments += [source.path, "--out", destination.path]
+    proc.arguments = arguments
     let errPipe = Pipe()
     proc.standardError = errPipe
     proc.standardOutput = Pipe()

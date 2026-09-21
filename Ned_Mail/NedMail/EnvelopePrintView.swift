@@ -3,7 +3,7 @@ import SwiftUI
 struct EnvelopePrintView: View {
     @State private var returnText: String = DefaultAddresses.returnLines.joined(separator: "\n")
     @State private var toText: String = DefaultAddresses.toLines.joined(separator: "\n")
-    @State private var selectedLabel: String = "5x7"
+    @State private var selectedLabel: String = "6x9"
     @State private var removePDFAfterPrint: Bool = true
     @State private var alertItem: AlertItem?
     @State private var isPrinting: Bool = false
