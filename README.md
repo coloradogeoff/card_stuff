@@ -123,6 +123,7 @@ Merges card front/back photos into a side-by-side grid image.
 ```bash
 python card_merge.py card*.jpg    # merge odd-numbered files (fronts)
 python card_merge.py -e card*.jpg # merge even-numbered files (backs)
+python card_merge.py -a card*.jpg # merge every supplied scan
 ```
 
 Adjusts the merged image's timestamp so it sorts as the newest file.
