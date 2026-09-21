@@ -14,3 +14,9 @@ target/
 # Xcode personal IDE state
 xcuserdata/
 *.xcuserstate
+
+# eBay order screenshots used as OCR fixtures. These are captures of real
+# orders and carry buyer names and addresses, so they stay on this machine
+# rather than going to a public repo. Keep the files locally to run the
+# ship_to_clipboard tests; a fresh clone will not have them.
+tests/fixtures/ship_to_clipboard/*.png
