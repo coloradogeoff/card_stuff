@@ -71,6 +71,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showEbayResultsWindow)) { _ in
             openWindow(id: SceneID.ebayResults)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .goToDirectory)) { note in
+            guard let dir = note.object as? QuickDirectory,
+                  let mode = impliedMode(for: dir) else { return }
+            appMode = mode
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             let previewURL = appMode == .cardNamer ? cardVM.previewURL : ebayVM.previewURL
             if let url = previewURL {
@@ -115,9 +120,34 @@ struct ContentView: View {
         appMode == .cardNamer ? cardVM.directoryPath : ebayVM.directoryPath
     }
 
+    /// The mode a folder implies, if any. Sales is where listing happens and
+    /// Collection is where naming happens, so going to either switches to the
+    /// mode that does that work. Incoming stays neutral — it is the inbox for
+    /// both — and keeps whichever mode you are already in.
+    private func impliedMode(for dir: QuickDirectory) -> AppMode? {
+        let settings = SettingsStore.shared
+        if isSameDirectory(dir, settings.currentSalesDirectory) { return .ebayTitles }
+        if isSameDirectory(dir, settings.desktopCardsDirectory) { return .cardNamer }
+        return nil
+    }
+
+    /// Matched on path rather than name, so the Go menu's own QuickDirectory
+    /// counts too. Compare paths, not URLs: URL(fileURLWithPath:) stats the file
+    /// system and marks an existing directory with a trailing slash, which
+    /// appendingPathComponent does not, so the two URLs never compare equal.
+    private func isSameDirectory(_ dir: QuickDirectory, _ url: URL) -> Bool {
+        URL(fileURLWithPath: dir.path).standardizedFileURL.path
+            == url.standardizedFileURL.path
+    }
+
     private func switchDirectory(_ dir: QuickDirectory) {
-        if appMode == .cardNamer { cardVM.switchTo(dir) }
-        else { ebayVM.switchTo(dir) }
+        // The implied mode is only the starting point: switching mode by hand
+        // afterwards should stay in this folder, so both panels follow it rather
+        // than the other one snapping back to wherever it was left. This also
+        // matches the .goToDirectory path, which both view models observe.
+        if let mode = impliedMode(for: dir) { appMode = mode }
+        cardVM.switchTo(dir)
+        ebayVM.switchTo(dir)
     }
 
     private func chooseDirectory() {

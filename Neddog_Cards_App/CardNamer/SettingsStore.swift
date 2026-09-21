@@ -41,13 +41,18 @@ final class SettingsStore: Sendable {
     /// launches. They're separate keys rather than one shared value because each
     /// view model reads its setting once at init; a single key would let the two
     /// toggles drift apart in-session while overwriting each other on disk.
+    ///
+    /// Both default to hiding: the working set is what still needs listing, so
+    /// cards already done should be out of the way until asked for. Read through
+    /// `object(forKey:)` rather than `bool(forKey:)`, which cannot tell "never
+    /// set" from an explicit false and would ignore the default.
     var hideListedCardNamer: Bool {
-        get { defaults.bool(forKey: "hide_listed_card_namer") }
+        get { defaults.object(forKey: "hide_listed_card_namer") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "hide_listed_card_namer") }
     }
 
     var hideListedEbayTitles: Bool {
-        get { defaults.bool(forKey: "hide_listed_ebay_titles") }
+        get { defaults.object(forKey: "hide_listed_ebay_titles") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "hide_listed_ebay_titles") }
     }
 
